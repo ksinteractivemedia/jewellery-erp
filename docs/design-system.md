@@ -67,10 +67,13 @@ Built on shadcn/ui primitives (Radix underneath), restyled to tokens above — n
 - **Navigation:** Tabs, Breadcrumb, PageHeader, SectionHeader, Sidebar + Topbar + ERPLayout + MobileNavigation (ERP/portal shell), FilterBar, DataToolbar, BulkActionBar, DetailPanel
 - **Feedback:** Dialog + ConfirmDialog, Drawer (one component, `side="left"|"right"|"bottom"`, built on Radix Dialog rather than a separate sheet library), Toast/Toaster + `toast()` hook, Alert, EmptyState, Skeleton
 - **Overlay/utility:** Tooltip
+- **Storefront:** StoreHeader/StoreFooter, AnnouncementBar, ProductCard/Grid/Gallery, ProductPrice(+Breakdown), CollectionHero, FilterDrawer, CartDrawer, WishlistButton, TrustBadge, ReviewSummary, CheckoutSummary — `CartDrawer` takes optional `title`/`checkoutLabel`/`emptyTitle`/`emptyDescription` overrides specifically so the B2B portal reuses the exact same component as a "purchase list" instead of forking a near-duplicate drawer (see progress.md, Phase 0.75).
 
-React Hook Form + Zod (`packages/validation`) wiring happens where these are consumed in real forms — that package doesn't exist yet (Phase 1); today's forms in the showcase use local `useState` only.
+React Hook Form + Zod (`packages/validation`) wiring happens where these are consumed in real forms — that package doesn't exist yet (Phase 1); today's forms use local `useState` only.
 
 Each component: one visual style, consumed identically across all three apps (theme-driven differences only, no per-app component forks). Full list in `packages/ui/src/index.ts`.
+
+**Server/Client boundary rule (important for anyone adding a component):** any component that calls a React hook itself, or attaches an event handler to a raw host element it renders (not merely forwarding to an already-`"use client"` Radix primitive), must have `"use client"` at its own top — regardless of whether today's callers happen to be Client Components. ERP pages are Server Components by default; several Phase 0.5 components only surfaced this gap once Phase 0.75 rendered them from real server-rendered pages. See progress.md, Phase 0.75, for the full list of components this applied to and the one exception that matters: a Server Component still cannot pass a column-defs-with-render-functions prop to a Client Component like `DataTable` — that always needs a small local Client Component wrapper at the call site (e.g. `apps/erp/components/recent-orders-table.tsx`).
 
 ## 6. States & interaction rules
 

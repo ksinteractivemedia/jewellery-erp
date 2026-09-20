@@ -24,19 +24,37 @@ export interface CartDrawerProps {
   onQuantityChange: (id: string, quantity: number) => void;
   onRemove: (id: string) => void;
   onCheckout: () => void;
+  /** Override for B2B ("Purchase list (n)") vs. the B2C default ("Your bag (n)"). */
+  title?: (count: number) => string;
+  checkoutLabel?: string;
+  emptyTitle?: string;
+  emptyDescription?: string;
 }
 
-export function CartDrawer({ open, onOpenChange, trigger, items, subtotal, onQuantityChange, onRemove, onCheckout }: CartDrawerProps) {
+export function CartDrawer({
+  open,
+  onOpenChange,
+  trigger,
+  items,
+  subtotal,
+  onQuantityChange,
+  onRemove,
+  onCheckout,
+  title = (count) => `Your bag (${count})`,
+  checkoutLabel = "Checkout",
+  emptyTitle = "Your bag is empty",
+  emptyDescription = "Items you add will appear here.",
+}: CartDrawerProps) {
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       {trigger && <DrawerTrigger asChild>{trigger}</DrawerTrigger>}
       <DrawerContent side="right">
         <DrawerHeader>
-          <DrawerTitle>Your bag ({items.length})</DrawerTitle>
+          <DrawerTitle>{title(items.length)}</DrawerTitle>
         </DrawerHeader>
         <DrawerBody>
           {items.length === 0 ? (
-            <EmptyState title="Your bag is empty" description="Items you add will appear here." />
+            <EmptyState title={emptyTitle} description={emptyDescription} />
           ) : (
             <ul className="flex flex-col gap-4">
               {items.map((item) => (
@@ -93,7 +111,7 @@ export function CartDrawer({ open, onOpenChange, trigger, items, subtotal, onQua
               <span className="tabular">{formatCurrency(subtotal)}</span>
             </div>
             <Button variant="primary" size="lg" onClick={onCheckout}>
-              Checkout
+              {checkoutLabel}
             </Button>
           </DrawerFooter>
         )}

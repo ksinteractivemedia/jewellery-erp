@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -38,9 +40,17 @@ export interface ButtonProps
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading = false, disabled, children, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
+    // Radix's Slot requires exactly one element child, so `asChild` can't also inject a
+    // loading spinner alongside it — it renders the child (e.g. a Link) as-is instead.
+    if (asChild) {
+      return (
+        <Slot ref={ref} className={cn(buttonVariants({ variant, size }), className)} {...props}>
+          {children}
+        </Slot>
+      );
+    }
     return (
-      <Comp
+      <button
         ref={ref}
         className={cn(buttonVariants({ variant, size }), className)}
         disabled={disabled || loading}
@@ -49,7 +59,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       >
         {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
         {children}
-      </Comp>
+      </button>
     );
   }
 );

@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { cn } from "../lib/utils";

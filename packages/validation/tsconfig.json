@@ -1,0 +1,8 @@
+{
+  "extends": "@jewellery/config/tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "noEmit": true
+  },
+  "include": ["src"]
+}

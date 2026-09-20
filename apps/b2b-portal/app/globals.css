@@ -1,0 +1,9 @@
+@import "@jewellery/ui/styles/tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  font-family: var(--font-sans);
+}

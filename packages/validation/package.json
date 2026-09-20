@@ -1,0 +1,18 @@
+{
+  "name": "@jewellery/validation",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@jewellery/config": "workspace:*",
+    "typescript": "^5.7.3"
+  }
+}

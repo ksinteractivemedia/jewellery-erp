@@ -1,0 +1,26 @@
+{
+  "name": "@jewellery/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@jewellery/types": "workspace:*",
+    "@jewellery/validation": "workspace:*",
+    "bcryptjs": "^2.4.3",
+    "mongoose": "^8.9.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@jewellery/config": "workspace:*",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.17.12",
+    "mongodb-memory-server": "^10.1.3",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

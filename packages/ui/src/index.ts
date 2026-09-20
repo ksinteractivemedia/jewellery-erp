@@ -2,6 +2,7 @@ export * from "./lib/utils";
 export * from "./lib/format";
 
 export * from "./components/alert";
+export * from "./components/announcement-bar";
 export * from "./components/badge";
 export * from "./components/breadcrumb";
 export * from "./components/bulk-action-bar";

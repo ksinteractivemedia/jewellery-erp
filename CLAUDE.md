@@ -28,6 +28,7 @@ A production-grade Jewellery ERP + Commerce platform for an Indian jewellery bus
 5. **Modular monolith, not microservices.** One `apps/api` process with clear module boundaries (`src/modules/*`), each exposing a small public interface. Don't split into services without a proven need.
 6. **Compliance/tax rules are configurable data (`TaxRule`, effective-dated), never hardcoded** percentages or CGST/SGST-vs-IGST branching in application code.
 7. **Mock data is isolated, never mixed into production service code paths.**
+8. **Any `packages/ui` component using a hook, or attaching a handler to a raw host element it renders, needs its own `"use client"`** — ERP pages are Server Components by default, so a component that only worked by accident (because every past caller happened to be a Client Component) will crash the first time a Server Component renders it. See docs/design-system.md §5 for the full rule, including why `DataTable`-style components with function-valued props (column render functions) still need a small local Client Component wrapper at the call site even once they're marked `"use client"` themselves.
 
 ## Tech stack
 
@@ -45,7 +46,7 @@ packages/{types, validation, pricing-engine, ui, config}
 docs/  tests/
 ```
 
-As of the last update to this file, no `apps/` or `packages/` code exists yet — see [docs/progress.md](docs/progress.md) for current phase.
+As of the last update to this file: `packages/config`, `packages/ui`, and `apps/erp`/`apps/b2c-store`/`apps/b2b-portal` (shells only — navigation, layout, placeholder content, no data layer) exist. `apps/api` and `packages/{types,validation,pricing-engine}` do not yet — see [docs/progress.md](docs/progress.md) for current phase.
 
 ## Working conventions
 
