@@ -2,6 +2,24 @@
 
 Update this file at the end of every major phase (see [CLAUDE.md](../CLAUDE.md)). Newest entry on top.
 
+## Phase 0.5 — Design system foundation (2026-09-20)
+
+**Status: complete.**
+
+Scaffolded the monorepo (pnpm workspaces) and built the shared design system ahead of schedule, since it blocks all three frontends and the plan called for it before business screens. No business functionality was built — no ERP screens, no storefront flows, no API.
+
+Produced:
+- **Monorepo root** — `pnpm-workspace.yaml`, root `package.json`, `tsconfig.base.json`, `.gitignore`.
+- **`packages/config`** — shared Tailwind preset (`tailwind-preset.cjs`) mapping semantic color/typography/radius/shadow/motion tokens to Tailwind utilities, and the base `tsconfig`.
+- **`packages/ui`** — the shared component library (67 components) plus `src/styles/tokens.css` (light/dark CSS variable tokens) and `src/lib/format.ts` (currency/weight/percentage formatting). Covers: primitives (Button, Input, Textarea, Select, Combobox, SearchInput, DatePicker, CurrencyInput, WeightInput, PercentageInput, Checkbox, Label, FormField, FormSection), layout/nav (PageHeader, SectionHeader, Breadcrumb, Tabs, CommandPalette), data (Table, DataTable with mobile stacked-card fallback, Pagination), feedback (Dialog, ConfirmDialog, Drawer, DropdownMenu, Tooltip, Toast/Toaster, Alert, EmptyState, Skeleton), ERP shell (Sidebar, Topbar, ERPLayout, MobileNavigation, FilterBar, DataToolbar, BulkActionBar, DetailPanel), jewellery-specific display (MetalRateDisplay, WeightDisplay/WeightBreakdown, CurrencyDisplay, PurityBadge, InventoryStatusBadge, StockLocationBadge, PriceBreakdown, MarginDisplay, HUIDDisplay, OrderStatusBadge, CreditLimitIndicator), and storefront (StoreHeader/Footer, ProductCard/Grid/Gallery, ProductPrice(+Breakdown), CollectionHero, FilterDrawer, CartDrawer, WishlistButton, TrustBadge, ReviewSummary, CheckoutSummary).
+- **`apps/erp`** — minimal Next.js 14 (App Router) shell whose only purpose right now is hosting the design-system showcase: `/showcase` (tokens, typography, all primitives/badges/cards/data/nav/overlays), `/showcase/storefront` (full storefront composition), `/showcase/erp-shell` (Sidebar+Topbar+ERPLayout composition). No real ERP screens yet.
+- Brand palette wired end-to-end as CSS variables (`#FF9900` primary + the black/charcoal/white/off-white/cream/grey/soft-grey neutrals), with light mode and a working dark mode (system-preference media query + explicit `data-theme` override, verified via the in-page toggle).
+- Fonts: Fraunces (display/editorial) + Plus Jakarta Sans (UI/data), loaded via `next/font/google`.
+
+Verified: `pnpm typecheck` clean on both packages, `next build` succeeds (static export of all 5 routes), and all three showcase routes were driven with a headless-Chromium script (Playwright) in light and dark mode — zero console/page errors after fixing one bug found this way (duplicate React keys from placeholder `href="#"` values in the showcase's own mock nav data, not a component defect). Screenshots reviewed for visual QA (spacing, dark-mode contrast, restrained use of the orange accent); one polish fix made as a result — `InventoryStatusBadge`'s `RESERVED` state was reassigned from tone `primary` to tone `info` so the brand orange stays reserved for actual brand/primary actions rather than doubling as a status color.
+
+Not done yet, deliberately: `packages/types`, `packages/validation`, `packages/pricing-engine`, `apps/api`, `apps/b2c-store`, `apps/b2b-portal` — these are Phase 1+ per the sequence below.
+
 ## Phase 0 — Architecture & planning (2026-09-20)
 
 **Status: complete.**
@@ -20,7 +38,7 @@ No application code exists yet. `apps/` and `packages/` folders have not been cr
 
 ## Recommended sequence (not started)
 
-- [ ] **Phase 1 — Scaffold + core domain.** pnpm workspace, `packages/types`/`validation`/`config`, `apps/api` skeleton (DB connection, auth module, error/audit middleware), Catalog + Inventory modules (`Product`, `InventoryItem`, `InventoryLedger`, `Transaction`, `Location`) with basic ERP CRUD screens. No pricing yet (fixed/manual price entry only) — goal is a correct, ledger-driven inventory before pricing complexity is layered on.
+- [ ] **Phase 1 — Core domain.** Monorepo and design system are done (Phase 0.5) — this phase adds `packages/types`, `packages/validation`, and `apps/api` (DB connection, auth module, error/audit middleware) plus Catalog + Inventory modules (`Product`, `InventoryItem`, `InventoryLedger`, `Transaction`, `Location`) with real ERP CRUD screens built on the existing `packages/ui`. No pricing yet (fixed/manual price entry only) — goal is a correct, ledger-driven inventory before pricing complexity is layered on.
 - [ ] **Phase 2 — Pricing engine.** `packages/pricing-engine`, `MetalRate`, `PricingRule`, `PriceSnapshot`, `/pricing/preview` API, wired into ERP product/catalogue views for live price display. Heavy unit test investment here (see test-plan.md) before anything depends on it.
 - [ ] **Phase 3 — B2C storefront MVP.** Public catalogue browsing, cart, checkout with online payment (placeholder/sandbox gateway), order creation with reservation, order confirmation → invoice + shipment stub.
 - [ ] **Phase 4 — B2B portal.** Customer/CustomerGroup, CreditAccount, private catalogue with negotiated pricing, PurchaseOrder-based ordering, offline payment mode, credit-limit approval workflow.

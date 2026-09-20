@@ -1,0 +1,139 @@
+/**
+ * Design tokens — single source of truth for color, radius, shadow and motion.
+ * Components must reference these (via Tailwind classes wired in
+ * packages/config/tailwind-preset.cjs) and never hardcode a hex value.
+ *
+ * Palette is intentionally small: orange is a brand accent, not a fill color.
+ * See docs/design-system.md for usage rules.
+ */
+
+:root {
+  /* ---- raw brand palette (private — components should use semantic tokens below) ---- */
+  --palette-orange: #ff9900;
+  --palette-black: #111111;
+  --palette-charcoal: #1a1a1a;
+  --palette-white: #ffffff;
+  --palette-offwhite: #f7f5f2;
+  --palette-cream: #efece7;
+  --palette-grey: #6b6b6b;
+  --palette-grey-soft: #d9d5ce;
+
+  /* ---- semantic tokens (light — default) ---- */
+  --color-background: var(--palette-offwhite);
+  --color-surface: var(--palette-white);
+  --color-surface-elevated: var(--palette-white);
+  --color-surface-sunken: var(--palette-cream);
+  --color-foreground: var(--palette-black);
+  --color-muted: var(--palette-grey);
+  --color-border: var(--palette-grey-soft);
+  --color-border-subtle: #e7e3dc;
+  --color-ring: var(--palette-orange);
+
+  --color-primary: var(--palette-orange);
+  --color-primary-hover: #e68600;
+  --color-primary-active: #cc7700;
+  --color-primary-foreground: var(--palette-white);
+  --color-primary-subtle: #fff1db;
+
+  --color-success: #1e7a4c;
+  --color-success-foreground: #ffffff;
+  --color-success-subtle: #e4f3ea;
+
+  --color-warning: #a3760a;
+  --color-warning-foreground: #ffffff;
+  --color-warning-subtle: #fbf0dc;
+
+  --color-danger: #b3362b;
+  --color-danger-foreground: #ffffff;
+  --color-danger-subtle: #fbe9e7;
+
+  --color-info: #2a5f8a;
+  --color-info-foreground: #ffffff;
+  --color-info-subtle: #e4eef5;
+
+  /* ---- shape & elevation ---- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+
+  --shadow-sm: 0 1px 2px rgba(17, 17, 17, 0.06);
+  --shadow-md: 0 6px 16px rgba(17, 17, 17, 0.08);
+  --shadow-lg: 0 16px 40px rgba(17, 17, 17, 0.14);
+
+  /* ---- typography ---- */
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ---- dark mode: system preference, unless explicitly overridden ---- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-background: var(--palette-black);
+    --color-surface: var(--palette-charcoal);
+    --color-surface-elevated: #232323;
+    --color-surface-sunken: #151515;
+    --color-foreground: var(--palette-offwhite);
+    --color-muted: #a3a099;
+    --color-border: #33312d;
+    --color-border-subtle: #2a2825;
+
+    --color-primary-hover: #ffab33;
+    --color-primary-active: #ffb84d;
+    --color-primary-subtle: #3a2a11;
+
+    --color-success-subtle: #123423;
+    --color-warning-subtle: #362c11;
+    --color-danger-subtle: #3a1e1a;
+    --color-info-subtle: #172a38;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+  }
+}
+
+/* ---- dark mode: explicit toggle (data-theme attribute on <html>) ---- */
+:root[data-theme="dark"] {
+  --color-background: var(--palette-black);
+  --color-surface: var(--palette-charcoal);
+  --color-surface-elevated: #232323;
+  --color-surface-sunken: #151515;
+  --color-foreground: var(--palette-offwhite);
+  --color-muted: #a3a099;
+  --color-border: #33312d;
+  --color-border-subtle: #2a2825;
+
+  --color-primary-hover: #ffab33;
+  --color-primary-active: #ffb84d;
+  --color-primary-subtle: #3a2a11;
+
+  --color-success-subtle: #123423;
+  --color-warning-subtle: #362c11;
+  --color-danger-subtle: #3a1e1a;
+  --color-info-subtle: #172a38;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+
+/* Tabular numerals for anything money/weight/data — alignment matters in dense tables */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

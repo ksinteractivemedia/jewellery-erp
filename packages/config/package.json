@@ -1,0 +1,13 @@
+{
+  "name": "@jewellery/config",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    "./tailwind-preset": "./tailwind-preset.cjs",
+    "./tsconfig.base.json": "./tsconfig.base.json"
+  },
+  "files": [
+    "tailwind-preset.cjs",
+    "tsconfig.base.json"
+  ]
+}

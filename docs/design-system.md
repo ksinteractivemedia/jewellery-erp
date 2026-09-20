@@ -1,6 +1,6 @@
 # Design System
 
-Status: proposed, pre-implementation. Governs `packages/ui` and the visual language shared by `apps/erp`, `apps/b2c-store`, `apps/b2b-portal`. See prompt-level constraints in [CLAUDE.md](../CLAUDE.md) for the non-negotiables (no generic SaaS look, no purple gradients, etc.).
+Status: **implemented** (Phase 0.5 — see [progress.md](./progress.md)). Governs `packages/ui` and the visual language shared by `apps/erp`, `apps/b2c-store`, `apps/b2b-portal`. See prompt-level constraints in [CLAUDE.md](../CLAUDE.md) for the non-negotiables (no generic SaaS look, no purple gradients, etc.). Live preview: `apps/erp` → `/showcase`, `/showcase/storefront`, `/showcase/erp-shell`.
 
 ## 1. Brand foundation
 
@@ -8,39 +8,36 @@ Status: proposed, pre-implementation. Governs `packages/ui` and the visual langu
 - **Neutrals:** Black, White, warm off-white, charcoal, soft grey — these carry the interface. Orange is the accent on top of a neutral foundation, not a co-equal color.
 - All colors defined as **CSS variables / design tokens**, never hardcoded hex in components.
 
-### Token structure (`packages/ui/tokens`)
+### Token structure (`packages/ui/src/styles/tokens.css`)
+
+Implemented as: a private raw palette (`--palette-orange` `#FF9900`, `--palette-black` `#111111`, `--palette-charcoal` `#1A1A1A`, `--palette-white`, `--palette-offwhite` `#F7F5F2`, `--palette-cream` `#EFECE7`, `--palette-grey` `#6B6B6B`, `--palette-grey-soft` `#D9D5CE`) plus the semantic layer components actually consume, wired into Tailwind via `packages/config/tailwind-preset.cjs`:
 
 ```css
-:root {
-  /* brand */
-  --color-brand: #FF9900;
-  --color-brand-hover: /* darker/lighter step */;
-  --color-brand-subtle: /* low-opacity tint, for backgrounds */;
+--color-background        --color-surface        --color-surface-elevated
+--color-surface-sunken     --color-foreground      --color-muted
+--color-border             --color-border-subtle   --color-ring
 
-  /* neutrals */
-  --color-black: #0A0A0A;
-  --color-white: #FFFFFF;
-  --color-offwhite: #FAF8F5;   /* warm off-white */
-  --color-charcoal: #262421;
-  --color-grey-soft: #E7E4DF;
+--color-primary --color-primary-hover --color-primary-active
+--color-primary-foreground --color-primary-subtle
 
-  /* semantic (derived from the above, never raw hex in components) */
-  --surface-page, --surface-card, --surface-sunken;
-  --border-default, --border-subtle;
-  --text-primary, --text-secondary, --text-muted, --text-inverse;
-  --status-success, --status-warning, --status-danger, --status-info;
-}
+--color-success / -foreground / -subtle
+--color-warning / -foreground / -subtle
+--color-danger  / -foreground / -subtle
+--color-info    / -foreground / -subtle
+
+--radius-sm --radius-md --radius-lg --radius-full
+--shadow-sm --shadow-md --shadow-lg
+--font-display --font-sans
 ```
 
-- `--status-*` colors are separate from `--color-brand` — orange is never overloaded to also mean "warning," which would blur the brand accent's meaning.
-- Dark mode (ERP + B2B portal only) redefines the semantic layer under `[data-theme="dark"]`; brand orange stays constant (it's already high-contrast on both black and off-white), neutrals invert.
+- Status colors (`success`/`warning`/`danger`/`info`) are fully separate from `--color-primary` — orange is never reused to mean "warning." `InventoryStatusBadge`/`OrderStatusBadge` deliberately map states like `RESERVED` to `info`, not `primary`, so the brand accent stays exclusive to actual brand/primary actions.
+- Dark mode redefines the semantic layer two ways: automatically under `@media (prefers-color-scheme: dark)` (guarded by `:root:not([data-theme="light"])`), and via an explicit `:root[data-theme="dark"]` override for a manual toggle (see the `/showcase` theme switcher). Brand orange stays constant; neutrals and subtle-tint backgrounds invert. Verified working in both apps/erp and the storefront preview.
 
 ## 2. Typography
 
-- One premium, distinctive typeface — **not** Inter/Roboto/system-default. Recommend a refined serif or high-contrast sans for display/headings (jewellery = editorial feel) paired with a clean grotesque for UI text/data-density in the ERP.
-  - Example pairing to evaluate: a serif like **Fraunces** or **Canela**-alternative for storefront headings, with **Söhne**/**General Sans**-class grotesque for body/UI. Final choice to be confirmed with actual brand assets before locking in — this doc records the *pairing strategy*, not a final license commitment.
-- Strong hierarchy: display (storefront hero/product), heading (section titles), body, label/caption, data (tabular figures, monospace-adjacent numerals for ERP tables — use `font-variant-numeric: tabular-nums` so price/weight columns align).
-- Type scale is a token (`--font-size-display`, `--font-size-h1`...`--font-size-caption`), not ad hoc `text-lg`/`text-2xl` sprinkled per component.
+- **Fraunces** (display/editorial — hero copy, page titles, product names, collection headings) paired with **Plus Jakarta Sans** (UI text, body copy, dense ERP data) — both loaded via `next/font/google` in `apps/erp/app/layout.tsx` as `--font-display`/`--font-sans`, self-hosted (no runtime Google Fonts request). Neither is Inter/Roboto/system-default. Revisit only if real brand/licensed type assets are supplied later.
+- Strong hierarchy, implemented as Tailwind font-size utilities in `packages/config/tailwind-preset.cjs`: `text-display-lg`, `text-display`, `text-h1`…`text-h4`, `text-body-lg`, `text-body`, `text-body-sm`, `text-caption`, `text-data`. Tabular figures via the `.tabular` utility class (`font-variant-numeric: tabular-nums`) — used on every currency/weight value so table columns align.
+- Type scale is defined once in the shared Tailwind preset, not ad hoc `text-lg`/`text-2xl` sprinkled per component.
 
 ## 3. Two products, one identity
 
@@ -64,14 +61,16 @@ They share: the token set, the type pairing, the component API (a `Button` is th
 
 Built on shadcn/ui primitives (Radix underneath), restyled to tokens above — not used off-the-shelf with default styling.
 
-- **Actions:** Button (primary/secondary/ghost/destructive, with loading state), IconButton, DropdownMenu, Command palette (⌘K — search products/customers/orders across ERP)
-- **Forms:** Input, Textarea, Select, Combobox, DatePicker, Checkbox, RadioGroup, Switch, form field wrapper with label/error/help text (wired to React Hook Form + Zod from `packages/validation`)
-- **Data display:** DataTable (dense mode for ERP, server-side pagination/sort/filter built in), Card, Badge, StatusIndicator (maps inventory/order/invoice statuses to consistent color+label), MetricCard (KPI tiles), Chart primitives (per dataviz conventions — see below)
-- **Navigation:** Tabs, Breadcrumbs, Sidebar/nav shell (ERP), top nav (storefront)
-- **Feedback:** Dialog, Drawer, Toast, EmptyState, Skeleton (loading), confirmation dialog variant for destructive actions (delete, cancel order, write off inventory)
-- **Overlay/utility:** Tooltip, Popover
+- **Actions:** Button (primary/secondary/ghost/destructive/link variants, loading state, `size="icon"` in place of a separate IconButton), DropdownMenu, CommandPalette (⌘K)
+- **Forms:** Input, Textarea, Select, Combobox, SearchInput, DatePicker, CurrencyInput, WeightInput, PercentageInput, Checkbox, Label, FormField (label/error/hint wrapper), FormSection
+- **Data display:** Table + DataTable (sortable, selectable, client-driven — collapses to a stacked-card list below `md` instead of a server-driven mode), Pagination, Card family, Badge, StatusBadge (generic tone+label; InventoryStatusBadge/OrderStatusBadge map the actual enums onto it), MetricCard
+- **Navigation:** Tabs, Breadcrumb, PageHeader, SectionHeader, Sidebar + Topbar + ERPLayout + MobileNavigation (ERP/portal shell), FilterBar, DataToolbar, BulkActionBar, DetailPanel
+- **Feedback:** Dialog + ConfirmDialog, Drawer (one component, `side="left"|"right"|"bottom"`, built on Radix Dialog rather than a separate sheet library), Toast/Toaster + `toast()` hook, Alert, EmptyState, Skeleton
+- **Overlay/utility:** Tooltip
 
-Each component: documented props, one visual style, consumed identically across all three apps (theme-driven differences only, no per-app component forks).
+React Hook Form + Zod (`packages/validation`) wiring happens where these are consumed in real forms — that package doesn't exist yet (Phase 1); today's forms in the showcase use local `useState` only.
+
+Each component: one visual style, consumed identically across all three apps (theme-driven differences only, no per-app component forks). Full list in `packages/ui/src/index.ts`.
 
 ## 6. States & interaction rules
 
