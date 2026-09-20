@@ -20,4 +20,8 @@ export interface User extends Timestamps {
 /** Internal-only shape (auth service). Never sent across the API boundary. */
 export interface UserWithCredentials extends User {
   passwordHash: string;
+  /** Consecutive failed logins since the last success/lock — drives account lockout. */
+  failedLoginAttempts: number;
+  lockedUntil?: Date;
+  passwordChangedAt?: Date;
 }

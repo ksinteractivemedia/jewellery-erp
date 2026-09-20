@@ -31,7 +31,7 @@ export async function listInventoryItems(
   return toDTOList<InventoryItem>(await InventoryItemModel.find(filter).sort({ createdAt: -1 }));
 }
 
-/** Non-ledger-governed fields only — huid/hallmarkStatus/barcode/serialNumber/stoneDetails. */
+/** Non-ledger-governed identifiers only. Status/location/weight/quantity never go through here. */
 export async function updateInventoryItemDetails(id: string, input: UpdateInventoryItemDetailsInput): Promise<InventoryItem> {
   const parsed = updateInventoryItemDetailsSchema.parse(input);
   const doc = await InventoryItemModel.findByIdAndUpdate(id, parsed, { new: true, runValidators: true });

@@ -13,23 +13,53 @@ These are the rules the system must enforce regardless of which channel (ERP/B2C
    - Why: today's gold rate must never retroactively change yesterday's invoice.
 
 1.4. **B2B customers may have negotiated prices or a customer/group-specific price list**, expressed as `PricingRule`s scoped to a `CustomerGroup` or individual `Customer`, evaluated with higher priority than the general list price.
+   - **Implemented (Phase 1):** `PricingRule` scoping is explicit typed fields (`customerType`, `customerGroupId`, `priceListId`, `metalId`, `purity`, `categoryId`), not a generic scope/scopeRefId pair — see data-model.md §7. Resolution among several matching rules is `priority` (higher wins), then specificity (more scoping fields set wins), then most recent `validFrom` — `resolveApplicableRule` in `apps/api/src/modules/pricing/pricing-rule.validation.ts`. The pricing engine itself (Phase 2) is the only caller.
 
 1.5. **Price overrides (manual discount at time of sale) must be recorded with who approved it and why**, as part of the `PriceSnapshot`/`Transaction`, not as a silent adjustment.
 
 1.6. **Tax (GST/CGST/SGST/IGST) is computed by a configurable `TaxRule`**, resolved from HSN code, buyer state, seller state, and effective date — never hardcoded as a fixed percentage in code.
 
+1.7. **A pricing rule's cross-field validity (at least one of makingCharge/wastage/discount set, percentage values within 0–100, `validTo` after `validFrom`) is re-checked against the merged document on every update, not just the incoming patch.** A patch that looks valid in isolation (e.g. "clear `makingChargeType`") can still leave the persisted rule doing nothing at all if it had no other calculation dimension — `assertValidMergedPricingRule` in `pricing-rule.validation.ts` is the enforcement point. *(Implemented Phase 1.)*
+
 ## 2. Inventory
 
 2.1. **Inventory quantity/status is never mutated directly.** Every change to an `InventoryItem`'s status, location, or weight goes through an `InventoryLedger` entry tied to a `Transaction`. Direct field writes to inventory state outside this path are a bug.
    - Why: without a ledger there is no audit trail for "where did this piece go" and no way to reconcile physical stock against system stock — both are non-negotiable in a jewellery business.
+   - **Implemented (Phase 1):** enforced two ways, not just by convention. (a) The repository layer (`inventory-item.repository.ts`) exposes no generic update path for `status`/`locationId`/weights/`quantity` — only `inventory-transaction.service.ts`'s `postInventoryTransaction`/`receiveNewInventoryItem` can change them, both inside one MongoDB session so the item mutation and its ledger entry commit or roll back together. (b) `InventoryLedger` and `Transaction` documents themselves reject any update/delete at the Mongoose layer (`appendOnlyPlugin`) — see rule 2.1a below.
+
+2.1a. **`InventoryLedger` and `Transaction` are append-only from the application's perspective, enforced at the schema layer.** Any `updateOne`/`updateMany`/`findOneAndUpdate`/`deleteOne`/`deleteMany`/`findOneAndDelete`/`replaceOne`, or re-`save()`ing an already-persisted document, throws `ImmutableRecordError` — it is not merely undocumented or discouraged. `MetalRate` (§ pricing) uses the same enforcement, since a rate history that can be silently rewritten is as bad as an inventory ledger that can be. *(Implemented Phase 1; see `append-only.plugin.ts` and `append-only.plugin.test.ts`.)*
 
 2.2. **Finished jewellery is individually serialized** (one `InventoryItem` per physical piece, carrying its own gross/stone/net/fine weight, HUID, cost). **Raw material and loose stones are tracked as fungible batches** (weight/quantity on a batch-style `InventoryItem`), not one document per gram.
+   - **Implemented (Phase 1):** `netWeight`/`fineWeight` are always derived — `grossWeight − stoneWeight` and `netWeight × fineness` respectively (`weight-calculations.ts`) — and rejected as direct input (`createInventoryItemSchema` has no such fields). `fineness` is resolved from `Metal.purityOptions` at creation time and stored as a snapshot on the item, so a later correction to the purity table never rewrites a past item's recorded fineness. Loose stones held as raw material before being set are `StoneInventory`, a separate collection from `InventoryItem` (different attributes — carat/clarity/certificate vs. gross/net/fine weight/HUID) — see data-model.md §5 for the known gap this leaves (stone status changes aren't yet ledger-tracked the same way).
 
-2.3. **An order reserves specific inventory, not a quantity.** Reservation is an atomic, guarded status transition (`AVAILABLE` → `RESERVED`) so two concurrent orders cannot reserve the same one-of-a-kind piece.
+2.3. **An order reserves specific inventory, not a quantity.** Reservation is an atomic, guarded status transition (`AVAILABLE` → `RESERVED`) recorded as a `RESERVATION` entry that names the holder (`reservation.referenceId`, `reservedBy`, optional `expiresAt`). Only individual pieces are held; a batch is drawn down, not reserved.
+   - **Implemented (Phase 1.7):** of N simultaneous reservations of one piece exactly one wins and the rest get a typed conflict (tested with real parallel transactions). A `SALE` of a held piece is accepted only for the order that holds it (`RESERVED_FOR_OTHER` otherwise). Releasing needs the holding order *and*, over HTTP, being the person who placed the hold — an order id is not a secret — unless the caller holds `inventory.approve_adjustment` (`force`).
 
 2.4. **Reserved inventory is released automatically** if the order is cancelled or its reservation window expires (configurable timeout for unpaid B2C orders).
+   - **Implemented (Phase 1.7):** `releaseExpiredReservations()` — idempotent, per-item transactions, attributed to a system actor, skips anything that changed underneath. *Not yet scheduled* (BullMQ, Phase 3).
 
 2.5. **Every inventory status must have a legal set of transitions** (e.g. `AVAILABLE → RESERVED → SOLD`, `AVAILABLE → WITH_JOB_WORKER → AVAILABLE`, never `SOLD → AVAILABLE` without an explicit `RETURN` transaction). Illegal transitions are rejected at the service layer, not just discouraged in the UI.
+   - **Implemented:** two layers, both checked before any write. The *status graph* (`status-transitions.ts`) says what is physically possible; the *movement rules* (`movement-rules.ts`) say which named event may cause it (`SALE` can't run from `IN_TRANSIT`; `TRANSFER_IN` only completes a `TRANSFER_OUT`; you can't hallmark a sold piece) and which kind of location each accepts (`JOBWORK_ISSUE` → a job worker, `HALLMARKING_OUT` → a hallmarking centre, `*_IN`/`*_RECEIPT`/`TRANSFER_*` → a stock location). A test proves the rules never allow what the graph forbids. `MELTING` is terminal — melted metal re-enters as a *new* item.
+
+2.6. **Every movement is a ledger entry with a reconstructable before/after.** Each entry carries a per-item `sequence` (gap-free, unique), signed deltas and the item's `balanceAfter`, and the item's cached state is only ever the last entry's. `reconcileItem`/`reconcileAll` replay the ledger and report any item whose cache disagrees (sequence gaps, broken status chain, balance ≠ previous + delta, edited cache) — intended as a scheduled integrity job (architecture.md risk #3).
+
+2.7. **No negative stock.** A batch's quantity and weights can never go below zero; a withdrawal larger than what is on hand is refused (`INSUFFICIENT_STOCK`) with nothing written, including inside a multi-line movement. A unit piece cannot be sold, reserved or transferred twice.
+
+2.8. **Concurrent operations are safe by construction, not by luck.** Every write is a compare-and-set on the item's `ledgerSeq` inside a MongoDB transaction, with a unique `(itemId, sequence)` ledger index behind it: two writers on one item cannot both commit. The loser retries, sees the new state, and fails with a typed error (`ILLEGAL_TRANSITION`, `RESERVED_FOR_OTHER`, `CONFLICT`, `CONCURRENT_MODIFICATION`). Unrelated items don't block each other.
+
+2.9. **A HUID is a piece's legal identity.** Exactly six letters/digits, case-insensitive (`ab12cd` = `AB12CD`), unique across all items, set once and never changed. Duplicates are refused with a typed error (`DUPLICATE_IDENTIFIER`) naming the value — including when two requests race. A HUID can arrive at receipt, by editing identifiers, or from `HALLMARKING_IN`; any of them marks the piece hallmarked. Item codes and barcodes are unique too.
+
+2.10. **Weights must be plausible scale readings.** Positive, finite, at most 3 decimals, below a sane ceiling; stone weight non-negative and less than gross for a metal piece. Net and fine are derived. Rejected at the schema *and* again in the service (a re-weigh that would leave no net metal is refused).
+
+2.11. **Corrections are requested and approved by different people.** A stock adjustment (re-weigh, mark damaged, write off) is a *request* that changes nothing. Someone holding `inventory.approve_adjustment` who is **not the requester** approves it; approval is refused if the piece has moved since the request. Writes to the ledger as `ADJUSTMENT` (or `SCRAP`/`MELTING`); rejection leaves stock untouched. Everything is audited.
+
+2.12. **Custody with partners keeps the piece ours.** Issuing to a job worker / repairer / hallmarking centre / workshop moves status and location but not ownership; the piece stays in owned stock and valuation. `SOLD` and `MELTING` are the only statuses outside "owned stock".
+
+2.13. **Transfers are two-step and never lose a piece in between.** Dispatch (`TRANSFER_OUT`: `AVAILABLE → IN_TRANSIT`, location = destination) is all-or-nothing — one ineligible piece stops the whole dispatch. A piece in transit is counted neither as available at the source nor as available at the destination; it can be received (all or part) or cancelled back to the source.
+
+2.14. **Valuation is not a price.** The item detail shows book `cost` and an *indicative metal value* (fine weight × the current rate for that purity, or derived from another purity's rate by fineness), explicitly excluding making, stones and tax. Selling prices come from the pricing engine (Phase 2), never from here.
+
+2.15. **Scanning identifies; it never acts.** A scanned/typed code is parsed (QR payload `JERP:ITEM:<code>`, item code, barcode, serial, HUID) and resolved to at most one item. Resolution is a read; every stock-changing step that follows is a normal audited operation with its own permission.
 
 ## 3. Orders (B2C & B2B, shared model)
 
@@ -70,10 +100,46 @@ These are the rules the system must enforce regardless of which channel (ERP/B2C
 
 6.3. **Every financial and inventory-affecting action is attributable**: `Transaction` records the acting `User`, timestamp, and channel. This is the baseline audit trail for compliance and dispute resolution.
 
-## 7. Cross-cutting
+## 7. Identity & access
 
-7.1. **No business logic in React components.** Pricing, credit checks, inventory transitions, tax computation live in `apps/api` services (and `packages/pricing-engine`/`packages/validation`), never duplicated in `apps/erp`, `apps/b2c-store`, or `apps/b2b-portal`.
+7.1. **A `User`'s password is never stored or handled as plaintext, and never leaves the auth service as a hash either.** bcrypt (cost 12), hashed only in `user.service.ts`; the public `User` DTO has no password/lockout fields (`toSafeUser` strips them on every read). One policy for every place a password is set: ≥10 characters, a letter and a digit, ≤72 bytes (bcrypt's hard limit — longer would silently truncate). *(Implemented.)*
 
-7.2. **Historical documents (invoices, past ledger entries, past price snapshots) are never edited in place.** Corrections happen via new offsetting transactions (credit note, adjustment entry), preserving the audit trail.
+7.2. **Permissions are `module.action` registry entries; roles reference them by id.** Adding a grantable action is a data + catalog change (`PERMISSIONS`), not scattered string checks. The 13 system roles and their permission sets are defined in code (`role-matrix.ts`) and re-synced at boot. *(Implemented.)*
 
-7.3. **Mock/sample data is never mixed into production service code.** Where mock data is needed during UI development, it must be clearly isolated (e.g. a `*.mock.ts` file or a seed script) and never reachable from a real request path.
+7.3. **Authorization is enforced by the backend on every request, from live data.** Permissions are read from the database per request, never trusted from the token or the client. Frontend permission checks exist only to hide what a user can't use. *(Implemented; verified by hand-crafting API calls as a `VIEWER`.)*
+
+7.4. **No role names in controllers.** Routes declare required permissions/policies (`requirePermission`, `authorize`). Separation of duties is expressed in the matrix and asserted by tests (e.g. only `INVENTORY_MANAGER`+admins hold `inventory.approve_adjustment`, only `B2B_MANAGER`+admins `b2b.override_credit`, only `ACCOUNTANT`+admins `accounting.create_payment`, `VIEWER` is strictly `*.view`).
+
+7.5. **No privilege escalation through user management.** You may only grant a role whose permissions you already hold, and only manage a user whose permissions you already hold; you can't change your own roles or deactivate yourself; only `SUPER_ADMIN` holds `settings.manage_roles`, and custom roles can only contain permissions their author holds. System roles are read-only over the API. *(Implemented.)*
+
+7.6. **A session ends the moment it should.** Logout, logout-all, password change/reset, user deactivation, admin revocation and refresh-token reuse all revoke server-side sessions, and revocation is checked on every request — a still-unexpired access token dies with its session. Refresh tokens are single-use; reuse revokes the session.
+
+7.7. **Authentication failures don't reveal which part was wrong.** Unknown email, wrong password, inactive and locked accounts return the same 401; password-reset requests return the same 202 for any email. The audit log (not the response) records the true reason. Accounts lock after repeated failures; login and reset endpoints are rate-limited.
+
+7.8. **Sensitive operations are audited, and the audit trail can't be edited.** Authentication events, authorization denials, user/role administration and reading the audit log are recorded with actor, target, IP, user agent and request id — append-only, credentials scrubbed. Every future stock adjustment, price override, credit override and payment must add its own audit entry when its controller is built (`auditRequest`/`recordAudit`).
+
+## 7A. Catalogue (Product Master)
+
+7A.1. **A Product is a design, not a piece.** It has no quantity, no piece-level status and no ledger. The physical jewellery is an `InventoryItem`; its stock only ever changes through `InventoryLedger`. Creating, editing, bulk-updating or deleting a Product never creates or alters an `InventoryItem`. The product detail page may *show* piece counts, but only to callers holding `inventory.view` (it is a different domain with its own permission).
+
+7A.2. **`isActive` ≠ stock status.** Active/inactive says whether the design is offered at all; `b2cEnabled`/`b2bEnabled` say which channels may show it (both default off). Availability of a specific piece is `InventoryItem.status`.
+
+7A.3. **SKUs are unique across products *and* variants and never change.** They're referenced by inventory, invoices and barcodes. Compared case-insensitively (stored uppercase).
+
+7A.4. **Purity must be valid for the metal.** It's checked against the metal's active `purityOptions` (reference data, never a hardcoded list) whenever the metal or the purity changes.
+
+7A.5. **Images are validated by content, not by name.** Only PNG/JPEG/WebP (by leading bytes) up to 5 MB; SVG and anything script-capable is refused; the stored key/extension is server-generated. Products can only reference keys that were actually uploaded. Product media is public read (storefronts and `<img>` can't send a bearer token) but immutable and unguessable; **upload requires `catalog.manage`**.
+
+7A.6. **A product with inventory can't be hard-deleted** (nor a variant). The catalogue definition is history once a piece exists — deactivate instead. Categories with children or products can't be deleted; deleting a collection only detaches it.
+
+7A.7. **Catalogue reads need `catalog.view`; every catalogue write (including bulk and upload) needs `catalog.manage` and is audited** with actor, target and changed fields (`catalog.*` audit actions). Bulk actions are capped at 200 ids and only touch rows that would actually change.
+
+## 8. Cross-cutting
+
+8.1. **No business logic in React components.** Pricing, credit checks, inventory transitions, tax computation live in `apps/api` services (and `packages/pricing-engine`/`packages/validation`), never duplicated in `apps/erp`, `apps/b2c-store`, or `apps/b2b-portal`.
+
+8.2. **Historical documents (invoices, past ledger entries, past price snapshots) are never edited in place.** Corrections happen via new offsetting transactions (credit note, adjustment entry), preserving the audit trail.
+
+8.3. **Mock/sample data is never mixed into production service code.** Where mock data is needed during UI development, it must be clearly isolated (e.g. a `*.mock.ts` file or a seed script) and never reachable from a real request path.
+
+8.4. **Every ref field crosses the API boundary as a plain string, never a raw Mongoose `ObjectId`.** `apps/api/src/shared/to-dto.ts` converts recursively (including inside embedded arrays) at every repository function's return — so `packages/types`' `id: string` contract is actually true at runtime, not just in the type layer. *(Implemented Phase 1.)*

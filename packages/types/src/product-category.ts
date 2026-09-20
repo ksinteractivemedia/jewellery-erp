@@ -5,6 +5,7 @@ export interface ProductCategory extends Timestamps {
   id: Id;
   name: string;
   slug: string;
+  description?: string;
   parentId?: Id;
   isActive: boolean;
 }

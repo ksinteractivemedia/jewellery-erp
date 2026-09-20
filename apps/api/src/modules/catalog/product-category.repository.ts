@@ -8,10 +8,12 @@ import {
 import { NotFoundError } from "../../shared/errors";
 import { toDTO, toDTOList } from "../../shared/to-dto";
 import { ProductCategoryModel } from "./product-category.model";
+import { resolveUniqueSlug } from "./slug";
 
 export async function createProductCategory(input: CreateProductCategoryInput): Promise<ProductCategory> {
   const parsed = createProductCategorySchema.parse(input);
-  const doc = await ProductCategoryModel.create(parsed);
+  const slug = await resolveUniqueSlug(ProductCategoryModel, parsed.name, parsed.slug);
+  const doc = await ProductCategoryModel.create({ ...parsed, slug });
   return toDTO<ProductCategory>(doc)!;
 }
 
@@ -30,8 +32,16 @@ export async function listProductCategories(filter: { parentId?: string; isActiv
 }
 
 export async function updateProductCategory(id: string, input: UpdateProductCategoryInput): Promise<ProductCategory> {
-  const parsed = updateProductCategorySchema.parse(input);
-  const doc = await ProductCategoryModel.findByIdAndUpdate(id, parsed, { new: true, runValidators: true });
+  const { parentId, description, ...rest } = updateProductCategorySchema.parse(input);
+  if (rest.slug) await resolveUniqueSlug(ProductCategoryModel, rest.name ?? rest.slug, rest.slug, id);
+  const update: Record<string, unknown> = { $set: { ...rest } };
+  const unset: Record<string, 1> = {};
+  if (parentId === null) unset.parentId = 1;
+  else if (parentId !== undefined) (update.$set as Record<string, unknown>).parentId = parentId;
+  if (description === null) unset.description = 1;
+  else if (description !== undefined) (update.$set as Record<string, unknown>).description = description;
+  if (Object.keys(unset).length) update.$unset = unset;
+  const doc = await ProductCategoryModel.findByIdAndUpdate(id, update, { new: true, runValidators: true });
   if (!doc) throw new NotFoundError("ProductCategory", id);
   return toDTO<ProductCategory>(doc)!;
 }

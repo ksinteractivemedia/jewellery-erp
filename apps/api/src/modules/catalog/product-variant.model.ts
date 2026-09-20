@@ -15,7 +15,6 @@ const productVariantSchema = new Schema<ProductVariantAttrs>(
     attributes: { type: Map, of: String, default: {} },
     defaultGrossWeight: { type: Number, min: 0 },
     defaultNetWeight: { type: Number, min: 0 },
-    images: { type: [String], default: [] },
     isActive: { type: Boolean, default: true },
   },
   baseSchemaOptions<ProductVariantAttrs>()

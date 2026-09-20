@@ -1,5 +1,5 @@
 import { Schema, Types, model, type HydratedDocument, type Model } from "mongoose";
-import type { InventoryItem } from "@jewellery/types";
+import type { InventoryItem, ItemReservation } from "@jewellery/types";
 import { baseSchemaOptions } from "../../shared/mongoose.helpers";
 
 const ITEM_KINDS = ["FINISHED_JEWELLERY", "RAW_MATERIAL", "SEMI_FINISHED", "LOOSE_STONE"] as const;
@@ -18,7 +18,8 @@ const STATUSES = [
   "MELTING",
 ] as const;
 
-export type InventoryItemAttrs = Omit<InventoryItem, "id" | "productId" | "variantId" | "metalId" | "locationId" | "stoneDetails"> & {
+export type InventoryItemAttrs = Omit<InventoryItem, "id" | "productId" | "variantId" | "metalId" | "locationId" | "stoneDetails" | "reservation"> & {
+  reservation?: Omit<ItemReservation, "referenceId" | "reservedBy"> & { referenceId: Types.ObjectId; reservedBy: Types.ObjectId };
   productId?: Types.ObjectId;
   variantId?: Types.ObjectId;
   metalId: Types.ObjectId;
@@ -58,7 +59,7 @@ const inventoryItemSchema = new Schema<InventoryItemAttrs>(
     purity: { type: String, required: true },
     fineness: { type: Number, required: true, min: 0, max: 1 },
 
-    huid: { type: String, unique: true, sparse: true },
+    huid: { type: String, unique: true, sparse: true, uppercase: true, trim: true },
     hallmarkStatus: { type: String, enum: ["NOT_APPLICABLE", "PENDING", "HALLMARKED"], default: "NOT_APPLICABLE" },
     stoneDetails: { type: [stoneDetailSchema], default: [] },
 
@@ -67,6 +68,21 @@ const inventoryItemSchema = new Schema<InventoryItemAttrs>(
 
     cost: { type: Number, required: true, min: 0 },
     quantity: { type: Number, required: true, min: 0, default: 1 },
+
+    reservation: {
+      type: new Schema(
+        {
+          referenceType: { type: String, enum: ["ORDER", "CUSTOMER_PURCHASE_ORDER", "MANUAL"], required: true },
+          referenceId: { type: Schema.Types.ObjectId, required: true },
+          reservedAt: { type: Date, required: true },
+          reservedBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+          expiresAt: Date,
+        },
+        { _id: false }
+      ),
+      required: false,
+    },
+    ledgerSeq: { type: Number, default: 0, min: 0 },
 
     manufacturingInfo: {
       type: new Schema(
@@ -85,6 +101,9 @@ const inventoryItemSchema = new Schema<InventoryItemAttrs>(
 
 inventoryItemSchema.index({ status: 1, locationId: 1 });
 inventoryItemSchema.index({ productId: 1 });
+inventoryItemSchema.index({ locationId: 1, status: 1, metalId: 1 });
+inventoryItemSchema.index({ "reservation.expiresAt": 1 }, { sparse: true });
+inventoryItemSchema.index({ updatedAt: -1 });
 inventoryItemSchema.index({ metalId: 1, purity: 1 });
 
 export const InventoryItemModel: Model<InventoryItemAttrs> = model<InventoryItemAttrs>("InventoryItem", inventoryItemSchema);

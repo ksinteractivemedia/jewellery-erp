@@ -29,6 +29,8 @@ A production-grade Jewellery ERP + Commerce platform for an Indian jewellery bus
 6. **Compliance/tax rules are configurable data (`TaxRule`, effective-dated), never hardcoded** percentages or CGST/SGST-vs-IGST branching in application code.
 7. **Mock data is isolated, never mixed into production service code paths.**
 8. **Any `packages/ui` component using a hook, or attaching a handler to a raw host element it renders, needs its own `"use client"`** — ERP pages are Server Components by default, so a component that only worked by accident (because every past caller happened to be a Client Component) will crash the first time a Server Component renders it. See docs/design-system.md §5 for the full rule, including why `DataTable`-style components with function-valued props (column render functions) still need a small local Client Component wrapper at the call site even once they're marked `"use client"` themselves.
+9. **Authorization is enforced by the backend, from live data, via permissions — never role names, never the frontend.** Protect every route with `requirePermission(PERMISSIONS.X)` / `authorize(policy)` behind `authenticate`; the permission vocabulary is `PERMISSIONS` in `packages/types`, the role matrix lives only in `apps/api/src/modules/auth/rbac/role-matrix.ts`. Frontend checks (`useAuth().can`, `<RequirePermission>`, nav filtering) are UX only. Any new sensitive mutation (stock adjustment, price/credit override, payment, user/role change) must be audited (`recordAudit` / `auditRequest`) and must not let a caller grant more than they hold. See docs/architecture.md §7 and business-rules.md §7.
+10. **Never put a credential where it can be read back.** Passwords only as bcrypt hashes (`toSafeUser` strips them from every DTO); refresh/reset tokens only as SHA-256 hashes of their secret; the access token only in SPA memory; audit metadata goes through `sanitizeAuditMetadata`.
 
 ## Tech stack
 
@@ -46,7 +48,7 @@ packages/{types, validation, pricing-engine, ui, config}
 docs/  tests/
 ```
 
-As of the last update to this file: `packages/config`, `packages/ui`, and `apps/erp`/`apps/b2c-store`/`apps/b2b-portal` (shells only — navigation, layout, placeholder content, no data layer) exist. `apps/api` and `packages/{types,validation,pricing-engine}` do not yet — see [docs/progress.md](docs/progress.md) for current phase.
+As of the last update to this file: `packages/{config,ui,types,validation}` and `apps/api` (domain/data layer + authentication, RBAC, audit log, the catalogue/media endpoints, and the inventory domain — ledger, transfers, reservation, adjustments) exist; `apps/erp` has real login/route guards, the Product Master screens and the Inventory screens (stock, detail, ledger, transfers, adjustments); `apps/b2c-store`/`apps/b2b-portal` are still shells with placeholder data. `packages/pricing-engine` does not exist yet — see [docs/progress.md](docs/progress.md) for current phase.
 
 ## Working conventions
 

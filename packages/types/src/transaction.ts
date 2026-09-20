@@ -1,27 +1,28 @@
 import type { Channel, Id } from "./common";
 
 /**
- * Shared by Transaction.type (the business event, coarse) and InventoryLedger.movementType
- * (one line of that event, granular — usually the same value, but e.g. an EXCHANGE
- * transaction produces one RETURN line and one SALE line).
+ * Shared by Transaction.type (the business event) and InventoryLedger.movementType (one line
+ * of that event). A multi-line event (a transfer of ten pieces) is one Transaction with ten lines.
  */
 export type MovementType =
-  | "PURCHASE"
-  | "GOODS_RECEIPT"
+  | "PURCHASE_RECEIPT"
   | "SALE"
   | "RETURN"
-  | "EXCHANGE"
-  | "TRANSFER"
-  | "ADJUSTMENT"
+  | "TRANSFER_OUT"
+  | "TRANSFER_IN"
+  | "RESERVATION"
+  | "RELEASE_RESERVATION"
   | "MANUFACTURING_ISSUE"
   | "MANUFACTURING_RECEIPT"
-  | "JOB_WORK_ISSUE"
-  | "JOB_WORK_RECEIPT"
-  | "HALLMARKING_OUT"
-  | "HALLMARKING_IN"
+  | "JOBWORK_ISSUE"
+  | "JOBWORK_RECEIPT"
   | "REPAIR_OUT"
   | "REPAIR_IN"
+  | "HALLMARKING_OUT"
+  | "HALLMARKING_IN"
+  | "ADJUSTMENT"
   | "SCRAP"
+  /** Not in the original brief but required: MELTING is a status with no other way to reach it. */
   | "MELTING";
 
 export type ReferenceType =
@@ -32,6 +33,7 @@ export type ReferenceType =
   | "GOODS_RECEIPT"
   | "PRODUCTION_ORDER"
   | "JOB_WORK_ORDER"
+  | "STOCK_TRANSFER"
   | "ADJUSTMENT"
   | "MANUAL";
 

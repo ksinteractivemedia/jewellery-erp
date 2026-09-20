@@ -8,6 +8,9 @@ export type UserAttrs = Omit<User, "id" | "roleIds" | "customerId" | "branchId">
   branchId?: Types.ObjectId;
   /** Never present on the `User` DTO — see user.repository.ts `toSafeUser`. */
   passwordHash: string;
+  failedLoginAttempts: number;
+  lockedUntil?: Date;
+  passwordChangedAt?: Date;
 };
 export type UserDocument = HydratedDocument<UserAttrs>;
 
@@ -25,6 +28,9 @@ const userSchema = new Schema<UserAttrs>(
     branchId: { type: Schema.Types.ObjectId, ref: "Branch" },
     isActive: { type: Boolean, default: true },
     lastLoginAt: Date,
+    failedLoginAttempts: { type: Number, default: 0, min: 0 },
+    lockedUntil: Date,
+    passwordChangedAt: Date,
   },
   baseSchemaOptions<UserAttrs>()
 );

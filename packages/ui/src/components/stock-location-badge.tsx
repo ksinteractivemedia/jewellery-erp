@@ -1,14 +1,27 @@
 import * as React from "react";
-import { Building2, MapPin, Package, Truck } from "lucide-react";
+import { Building2, Factory, FlaskConical, MapPin, Package, ShieldCheck, Truck, Vault, Wrench } from "lucide-react";
 import { cn } from "../lib/utils";
 
-export type LocationType = "STORE" | "WAREHOUSE" | "COUNTER" | "JOB_WORKER" | "IN_TRANSIT_VIRTUAL";
+export type LocationType =
+  | "STORE"
+  | "WAREHOUSE"
+  | "COUNTER"
+  | "VAULT"
+  | "JOB_WORKER"
+  | "HALLMARKING_CENTER"
+  | "REPAIR_CENTER"
+  | "MANUFACTURING_UNIT"
+  | "IN_TRANSIT_VIRTUAL";
 
 const icons: Record<LocationType, React.ComponentType<{ className?: string }>> = {
   STORE: Building2,
   WAREHOUSE: Package,
   COUNTER: MapPin,
-  JOB_WORKER: MapPin,
+  VAULT: Vault,
+  JOB_WORKER: FlaskConical,
+  HALLMARKING_CENTER: ShieldCheck,
+  REPAIR_CENTER: Wrench,
+  MANUFACTURING_UNIT: Factory,
   IN_TRANSIT_VIRTUAL: Truck,
 };
 

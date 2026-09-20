@@ -14,7 +14,9 @@ import {
   type SidebarNavItem,
   Topbar,
 } from "@jewellery/ui";
-import { findNavItem, getBreadcrumb, NAV, NAV_FLAT, type NavLeaf } from "../lib/nav";
+import { useAuth } from "../lib/auth/auth-context";
+import { findNavItem, findOwningNavItem, getBreadcrumb, visibleNav, type NavLeaf } from "../lib/nav";
+import { RequirePermission } from "./auth/require-permission";
 import { NotificationsMenu } from "./notifications-menu";
 import { UserMenu } from "./user-menu";
 
@@ -24,10 +26,11 @@ const brand = (
   </span>
 );
 
-function withActiveState(pathname: string): SidebarNavGroup[] {
-  return NAV.map((group) => ({
+function withActiveState(nav: ReturnType<typeof visibleNav>, pathname: string): SidebarNavGroup[] {
+  const owner = findOwningNavItem(pathname);
+  return nav.map((group) => ({
     label: group.label,
-    items: group.items.map((item) => ({ ...item, active: item.href === pathname })),
+    items: group.items.map((item) => ({ ...item, active: item.href === owner?.href })),
   }));
 }
 
@@ -42,7 +45,9 @@ function renderNavLink(item: SidebarNavItem, children: React.ReactNode) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { can } = useAuth();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const nav = React.useMemo(() => visibleNav(can), [can]);
 
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -55,15 +60,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const groups = withActiveState(pathname);
-  const currentItem = findNavItem(pathname);
+  const groups = withActiveState(nav, pathname);
+  // Nested routes (detail/edit/new) inherit their section's permission but draw their own header.
+  const currentItem = findOwningNavItem(pathname);
+  const shellHeader = currentItem && !currentItem.ownsHeader && findNavItem(pathname) !== undefined;
   const breadcrumb = getBreadcrumb(pathname);
 
   const paletteGroups = React.useMemo(
     () => [
       {
         heading: "Navigate",
-        items: NAV_FLAT.map((item: NavLeaf) => ({
+        items: nav.flatMap((g) => g.items).map((item: NavLeaf) => ({
           id: item.href,
           label: item.label,
           icon: <item.icon className="h-4 w-4" />,
@@ -71,7 +78,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         })),
       },
     ],
-    [router]
+    [router, nav]
   );
 
   return (
@@ -90,8 +97,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         />
       }
     >
-      <PageHeader title={currentItem?.label ?? "Dashboard"} breadcrumb={breadcrumb.length ? breadcrumb : undefined} />
-      {children}
+      {(shellHeader || !currentItem) && <PageHeader title={currentItem?.label ?? "Dashboard"} breadcrumb={breadcrumb.length ? breadcrumb : undefined} />}
+      <RequirePermission permission={currentItem?.permission}>{children}</RequirePermission>
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} groups={paletteGroups} placeholder="Search modules…" />
     </ERPLayout>
   );

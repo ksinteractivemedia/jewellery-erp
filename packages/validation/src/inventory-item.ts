@@ -20,25 +20,61 @@ export const inventoryStatusSchema = z.enum([
 ]);
 
 /**
+ * A BIS HUID: exactly six letters/digits. Stored uppercase — "ab12cd" and "AB12CD" are the same
+ * mark, so they must collide as duplicates rather than sneak in as two.
+ */
+export const zHuid = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z0-9]{6}$/, "HUID must be exactly 6 letters or digits");
+
+/** Barcodes/serials are printed labels — printable, no whitespace inside, bounded. */
+export const zLabelCode = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9._\-/]+$/, "may contain letters, digits and . _ - / only");
+
+/** A weight the scale could have produced: positive, finite, at most 3 decimals, under a sane ceiling. */
+export const zScaleWeight = z
+  .number()
+  .finite()
+  .positive("must be greater than zero")
+  .max(1_000_000, "weight is implausibly large")
+  .refine((g) => Math.abs(g * 1000 - Math.round(g * 1000)) < 1e-6, "at most 3 decimal places");
+
+export const zStoneWeightValue = z
+  .number()
+  .finite()
+  .nonnegative("cannot be negative")
+  .max(1_000_000)
+  .refine((g) => Math.abs(g * 1000 - Math.round(g * 1000)) < 1e-6, "at most 3 decimal places");
+
+export const RECEIPT_MOVEMENTS = ["PURCHASE_RECEIPT", "MANUFACTURING_RECEIPT", "JOBWORK_RECEIPT", "ADJUSTMENT"] as const;
+
+/**
  * `netWeight`/`fineWeight` are deliberately NOT inputs — they're always derived from
  * grossWeight/stoneWeight/fineness by the service layer (see weight-calculations.ts),
- * never trusted from a caller.
+ * never trusted from a caller. `itemCode` is optional: the server allocates the next one.
  */
 export const createInventoryItemSchema = z
   .object({
-    itemCode: z.string().min(1).toUpperCase(),
-    barcode: z.string().optional(),
-    serialNumber: z.string().optional(),
+    itemCode: z.string().trim().min(1).max(40).toUpperCase().optional(),
+    barcode: zLabelCode.optional(),
+    serialNumber: zLabelCode.optional(),
     productId: zId.optional(),
     variantId: zId.optional(),
     type: inventoryItemKindSchema,
     serialization: serializationSchema.default("UNIT"),
-    grossWeight: zGrams,
-    stoneWeight: zGrams.default(0),
+    grossWeight: zScaleWeight,
+    stoneWeight: zStoneWeightValue.default(0),
     metalId: zId,
-    purity: z.string().min(1),
-    huid: z.string().optional(),
-    hallmarkStatus: hallmarkStatusSchema.default("NOT_APPLICABLE"),
+    purity: z.string().trim().min(1).max(20),
+    huid: zHuid.optional(),
+    /** Defaults to HALLMARKED when a HUID is given, NOT_APPLICABLE otherwise. */
+    hallmarkStatus: hallmarkStatusSchema.optional(),
     stoneDetails: z.array(zStoneDetail).default([]),
     locationId: zId,
     status: inventoryStatusSchema.default("AVAILABLE"),
@@ -48,15 +84,26 @@ export const createInventoryItemSchema = z
   .refine((data) => data.stoneWeight <= data.grossWeight, {
     message: "stoneWeight cannot exceed grossWeight",
     path: ["stoneWeight"],
-  });
+  })
+  .refine((data) => data.type === "LOOSE_STONE" || data.stoneWeight < data.grossWeight, {
+    message: "stoneWeight must be less than grossWeight — a metal item needs a positive net weight",
+    path: ["stoneWeight"],
+  })
+  .refine((data) => !(data.huid && data.hallmarkStatus === "NOT_APPLICABLE"), {
+    message: "an item with a HUID is hallmarked",
+    path: ["hallmarkStatus"],
+  })
+  .transform((data) => ({ ...data, hallmarkStatus: data.hallmarkStatus ?? (data.huid ? ("HALLMARKED" as const) : ("NOT_APPLICABLE" as const)) }));
 export type CreateInventoryItemInput = z.input<typeof createInventoryItemSchema>;
 
-/** Editable, non-ledger-governed fields only — status/location/weight never go through here. */
+/**
+ * Non-stock identifiers only. A HUID can be set once (then it is the piece's legal identity) —
+ * enforced in the service; status/location/weight never go through here.
+ */
 export const updateInventoryItemDetailsSchema = z.object({
-  barcode: z.string().optional(),
-  serialNumber: z.string().optional(),
-  huid: z.string().optional(),
-  hallmarkStatus: hallmarkStatusSchema.optional(),
+  barcode: zLabelCode.optional(),
+  serialNumber: zLabelCode.optional(),
+  huid: zHuid.optional(),
   stoneDetails: z.array(zStoneDetail).optional(),
 });
 export type UpdateInventoryItemDetailsInput = z.input<typeof updateInventoryItemDetailsSchema>;

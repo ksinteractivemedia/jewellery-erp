@@ -12,3 +12,13 @@ export type CreateRoleInput = z.input<typeof createRoleSchema>;
 
 export const updateRoleSchema = createRoleSchema.partial();
 export type UpdateRoleInput = z.input<typeof updateRoleSchema>;
+
+/** Custom (non-system) roles are defined by permission *key*, resolved to ids server-side. */
+export const permissionKeySchema = z.string().regex(/^[a-z0-9_]+\.[a-z0-9_]+$/);
+
+export const customRoleSchema = z.object({
+  name: z.string().trim().min(2).max(50),
+  description: z.string().max(500).optional(),
+  permissionKeys: z.array(permissionKeySchema).max(200),
+});
+export type CustomRoleInput = z.input<typeof customRoleSchema>;

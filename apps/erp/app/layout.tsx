@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Fraunces, Plus_Jakarta_Sans } from "next/font/google";
 import { Toaster, TooltipProvider } from "@jewellery/ui";
+import { AuthProvider } from "../lib/auth/auth-context";
+import { QueryProvider } from "../lib/query-provider";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -24,7 +26,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className={`${fraunces.variable} ${jakarta.variable}`}>
-        <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+        <TooltipProvider delayDuration={200}>
+          <AuthProvider>
+            <QueryProvider>{children}</QueryProvider>
+          </AuthProvider>
+        </TooltipProvider>
         <Toaster />
       </body>
     </html>

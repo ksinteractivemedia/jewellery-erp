@@ -9,6 +9,7 @@ export const locationTypeSchema = z.enum([
   "JOB_WORKER",
   "HALLMARKING_CENTER",
   "REPAIR_CENTER",
+  "MANUFACTURING_UNIT",
   "IN_TRANSIT_VIRTUAL",
 ]);
 

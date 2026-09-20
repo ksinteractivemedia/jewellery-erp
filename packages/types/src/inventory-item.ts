@@ -25,6 +25,19 @@ export interface ManufacturingInfo {
 }
 
 /**
+ * Why an item is RESERVED and for whom. Set and cleared only by RESERVATION / RELEASE_RESERVATION /
+ * SALE ledger entries — so "reserved for order X" can always be traced to the entry that did it.
+ */
+export interface ItemReservation {
+  referenceType: "ORDER" | "CUSTOMER_PURCHASE_ORDER" | "MANUAL";
+  referenceId: Id;
+  reservedAt: Date;
+  reservedBy: Id;
+  /** After this moment the hold may be released by the expiry sweep (checkout abandoned). */
+  expiresAt?: Date;
+}
+
+/**
  * One physical piece (UNIT) or one fungible batch (BATCH — raw material, loose stones
  * before allocation). Never just a quantity — see architecture.md §4 and business-rules.md §2.2.
  *
@@ -65,6 +78,14 @@ export interface InventoryItem extends Timestamps {
   cost: Paise;
   /** 1 for UNIT items; the batch quantity for BATCH items. */
   quantity: number;
+
+  reservation?: ItemReservation;
+  /**
+   * Count of ledger entries posted for this item. Every movement increments it atomically and
+   * stamps the same number on its ledger entry, so two writers racing on one item cannot both
+   * win, and the ledger has a gap-free per-item order that never depends on clock ties.
+   */
+  ledgerSeq: number;
 
   manufacturingInfo?: ManufacturingInfo;
 }

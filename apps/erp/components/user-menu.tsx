@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { LogOut, Settings, UserCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { LogOut } from "lucide-react";
 import {
   Button,
   DropdownMenu,
@@ -11,34 +12,47 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@jewellery/ui";
+import { useAuth } from "../lib/auth/auth-context";
 
-/** Placeholder identity until auth (Phase 1) exists — UI shell only, no session logic. */
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+
+const titleCase = (role: string) => role.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
 export function UserMenu() {
+  const { user, logout } = useAuth();
+  const router = useRouter();
+  if (!user) return null;
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" aria-label="Account menu">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-subtle text-body-sm font-medium text-primary-active">
-            PS
+            {initials(user.name)}
           </span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuLabel>
           <span className="flex flex-col">
-            <span className="text-body-sm font-medium text-foreground">Priya Sharma</span>
-            <span className="text-caption font-normal text-muted">Admin · Main Store</span>
+            <span className="text-body-sm font-medium text-foreground">{user.name}</span>
+            <span className="truncate text-caption font-normal text-muted">{user.email}</span>
+            <span className="text-caption font-normal text-muted">{user.roles.map(titleCase).join(", ") || "No role assigned"}</span>
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>
-          <UserCircle className="h-4 w-4" /> Profile
-        </DropdownMenuItem>
-        <DropdownMenuItem>
-          <Settings className="h-4 w-4" /> Preferences
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem destructive>
+        <DropdownMenuItem
+          onSelect={async () => {
+            await logout();
+            router.replace("/login");
+          }}
+        >
           <LogOut className="h-4 w-4" /> Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>

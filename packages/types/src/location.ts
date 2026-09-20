@@ -8,6 +8,7 @@ export type LocationType =
   | "JOB_WORKER"
   | "HALLMARKING_CENTER"
   | "REPAIR_CENTER"
+  | "MANUFACTURING_UNIT"
   | "IN_TRANSIT_VIRTUAL";
 
 /** A stock-keeping point within a Branch — a counter, vault, workshop, or a virtual location like "in transit". */

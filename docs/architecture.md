@@ -55,8 +55,8 @@ Rule: `apps/*` may depend on `packages/*`. `packages/*` never depend on `apps/*`
 ```
 apps/api/src/modules/
   auth/            Users, roles, permissions — shared identity across all 3 channels
-  catalog/         Product (catalogue definition), Category, ProductCollection
-  inventory/       InventoryItem, InventoryLedger, Location, reservation logic
+  catalog/         Product (catalogue definition), Variant, Category, ProductCollection — **implemented** (product/taxonomy/variant services)
+  inventory/       InventoryItem, InventoryLedger, Transaction, StockTransfer, StockAdjustment, movement rules, queries — **implemented**
   pricing/         MetalRate, PricingRule, PriceSnapshot — wraps packages/pricing-engine
   customers/       Customer, CustomerGroup, CreditAccount (B2B)
   orders/          Order, OrderLine, Cart — unified B2C + B2B (channel-discriminated)
@@ -64,7 +64,7 @@ apps/api/src/modules/
   manufacturing/   ProductionOrder, MaterialIssue/Receipt, JobWorkOrder, Reconciliation
   invoicing/       Invoice, Payment, PaymentAllocation
   compliance/      TaxRule (GST/HSN), HallmarkingRecord, HUID tracking
-  media/           S3-backed asset upload/serving
+  media/           MediaStorage port (local disk / memory / future S3 adapter), image validation, upload service — **implemented**
   notifications/   BullMQ queues/workers (email, SMS, webhooks)
   shared/          DB connection, error types, middleware, audit logging
 ```
@@ -100,19 +100,65 @@ output: { metalValue, makingCharge, wastage, stoneValue, subtotal, discount, tax
 - Deterministic and side-effect free → easy to unit test exhaustively and to snapshot-test against known-good calculations (critical given this is money).
 - `apps/api` is the only caller that persists a `PriceSnapshot`; frontends may call a `/pricing/preview` API endpoint for live display, but never compute price locally.
 
-## 6. Inventory ledger and concurrency
+## 6. Inventory ledger and concurrency — **implemented** (Phase 1.7)
 
-- Every stock-affecting action inserts a `Transaction` + one or more `InventoryLedger` entries in a single MongoDB multi-document transaction (requires a replica set — even a single-node replica set in dev).
-- `InventoryItem.status`/`location` are **derived, cached fields** updated inside the same DB transaction as the ledger insert — never mutated independently. The ledger is the source of truth; the cached field exists purely so reads don't need to replay history.
-- Reservation (B2C/B2B order confirmation) uses an atomic `findOneAndUpdate` guarded by `status: 'AVAILABLE'` to prevent two simultaneous orders from reserving the same physical piece; the loser gets a typed "item no longer available" error to handle in UI (swap item / refund).
-- Fungible raw material (gold bars, loose stones before allocation) is tracked by weight/quantity on batch-style `InventoryItem`s rather than one document per gram; the same ledger model applies, just with weight deltas instead of a unit count.
+**The model.** `Product` is a catalogue design; `InventoryItem` is a physical piece (or batch); `InventoryLedger` is its immutable history; `Transaction` is the business event behind one or more ledger lines. Stock is never a quantity on a product.
 
-## 7. Auth & multi-channel access
+**One write path.** Every stock change — receive, reserve, release, sell, return, partner issue/receipt, transfer, adjustment — goes through `postInSession` inside `withInventoryTransaction` (a MongoDB multi-document transaction; a replica set is required, even single-node in dev). The `Transaction`, each ledger entry, the item update and any related document (a `StockTransfer`, a `StockAdjustment`) commit together or not at all. Higher-level operations (`stock-operations.ts`) are in-process functions the Orders/Production modules will call directly; the HTTP layer (`inventory.service.ts`) adds validation, permission-dependent decisions and the audit entry.
 
-- One `User`/`Role`/`Permission` model shared by ERP staff, B2B customer users, and B2C customers (discriminated by `userType`).
-- ERP and B2B portal: session-based or JWT auth with role-based permissions (staff roles: admin, sales, inventory, accounts, manufacturing; B2B roles: buyer, approver).
-- B2C storefront: standard customer auth (email/OTP or password), plus guest checkout.
-- API is the single auth boundary; frontends never talk to MongoDB directly.
+**Per-line checks, in order:** the movement rule (which event may cause which status change, into which kind of location — `movement-rules.ts`) → the physical status graph (`status-transitions.ts`) → weights/quantity never negative → reservation ownership → hallmark/HUID side effects → **compare-and-set on `ledgerSeq`** → ledger entry with `sequence` and `balanceAfter`.
+
+**Concurrency, precisely.** Two operations racing on one item both read `ledgerSeq = n`; both try to write `n → n+1`. MongoDB's snapshot isolation makes the second transaction fail with a transient write conflict, `withTransaction` retries its callback, and the retry now sees the winner's state and fails with a *typed* domain error (`ILLEGAL_TRANSITION`, `RESERVED_FOR_OTHER`, `CONFLICT`, `INSUFFICIENT_STOCK`…). Behind that, the unique `(itemId, sequence)` ledger index makes a double-claim of a slot impossible even if something bypassed the check. Callbacks are therefore written to derive everything from what they read *inside* the session — they may run more than once. Counters for document numbers are allocated *outside* the transaction so unrelated operations never contend on them.
+
+**Integrity is checkable.** `replayLedger` (pure) and `reconcileItem`/`reconcileAll` verify sequence continuity, status chaining, `balance = previous + delta`, and that the item's cache equals the last entry. Tests assert it after every scenario and that a direct edit is caught. Wire `reconcileAll` to a schedule when BullMQ lands (risk #3).
+
+**Known limits (deliberate, documented):**
+- *Batch (fungible) items* support whole-batch moves and signed weight/quantity deltas, but not a **partial issue that splits a lot** (issuing 10 g of a 100 g bar to manufacturing while 90 g stays available). Today a batch has one status, so `MANUFACTURING_ISSUE` moves the whole lot; correct partial issue needs lot splitting/location-level quantities — that belongs to Phase 6 (manufacturing) and is not faked here. Reservation is refused for batches.
+- *StoneInventory* is still not ledger-tracked (unchanged from Phase 1).
+- *Cost* is visible to every `inventory.view` holder; there is no separate cost-visibility permission yet.
+- *Reservation expiry* is a callable function, not yet a scheduled job.
+
+## 6A. Scanning architecture (no hardware code)
+
+Anything that produces text is a **`ScanSource`** (`apps/erp/lib/inventory/scanner.ts`); every scan takes the same path: `parseScanCode` (shared, pure, in `packages/validation`) → `GET /api/inventory/scan?code=` → an inventory row → the quick view. Today there is one source, the **keyboard wedge** — how USB and Bluetooth-HID barcode scanners present themselves (they "type" the code and press Enter), detected by inter-key timing (< 40 ms gaps, ≥ 4 chars, ignoring focused text fields) so a person typing is never mistaken for a scanner. A phone-camera source (BarcodeDetector/ZXing) or a native bridge would be another `ScanSource` appended to `SCAN_SOURCES`; nothing else changes.
+
+**Codes.** Labels carry the QR payload `JERP:ITEM:<itemCode>` (uppercase + digits + `-` `:` only, so it encodes in a QR's compact alphanumeric mode); 1-D barcodes carry the item code or the item's `barcode`; a HUID scans as its six characters. Resolution tries item code → barcode → serial → HUID (HUID only if the text is six alphanumerics) and returns *at most one item, or none — never an error for an unknown code*. Input is stripped of scanner control characters, length-capped, and restricted to a safe alphabet before it reaches a query. Scanning **identifies; it never acts** — every stock change that follows is a normal permissioned, audited operation.
+
+## 7. Authentication & authorization — **implemented**
+
+One identity model (`User`/`Role`/`Permission`) serves ERP staff, B2B buyers and B2C customers (`userType`). The API is the single auth boundary: every protected route sits behind `authenticate` + a policy, and the frontends never talk to MongoDB.
+
+**Token architecture**
+- **Access token** — HS256 JWT, 15 min, claims are *identity only* (`sub`, `sid` session id, `jti`, `iss`, `aud`). Verified with the algorithm pinned to HS256 (no `alg: none`/confusion attacks). Held only in the SPA's memory — never `localStorage` — and sent as `Authorization: Bearer`.
+- **Refresh token** — opaque `<sessionId>.<256-bit secret>`, `httpOnly; SameSite=Strict; Path=/api/auth; Secure` (in production) cookie, never in a response body. Only a SHA-256 of the secret is stored. **Single-use with rotation**: each refresh issues a new token and remembers the previous hash; presenting an already-rotated token means it leaked, so the whole session is revoked (reuse detection). Rotation is a compare-and-swap, so of two concurrent refreshes exactly one wins. Idle expiry (7 d, sliding) and absolute expiry (30 d) are both enforced.
+- **Why roles/permissions are not in the JWT:** they are resolved from the database on every request, so a role change, role deactivation or user deactivation takes effect on the *next request*, not at token expiry. The cost is ~3 indexed reads per request; a short-TTL cache is the future optimisation, deliberately not built yet.
+
+**Session / token invalidation strategy**
+`sessions` rows are the revocation list, checked on every request (so logout is immediate even though the JWT hasn't expired). A session is revoked on: logout, logout-all, password change (all *other* sessions), password reset (all), user deactivation, admin "revoke sessions", refresh-token reuse, idle/absolute expiry. Revoked rows are kept 30 days past expiry for forensics, then purged by a Mongo TTL index.
+
+**Login hardening** — bcrypt (cost 12; 4 only in tests); identical `401 Invalid credentials` for unknown user / wrong password / inactive / locked, with a dummy bcrypt run on unknown accounts so latency doesn't reveal existence; per-account lockout (5 failures → 15 min) *plus* per-IP rate limiting on login and forgot-password (in-memory store: move to Redis before running >1 API instance).
+
+**Password reset** — `POST /forgot-password` always answers `202` with the same body whether or not the email exists. A known, active account gets a random single-use token (30 min, hash stored, older links invalidated) through the `EmailSender` port. `POST /reset-password` verifies the secret *before* consuming the token, then sets the password, clears lockout, revokes every session, and sends a "password changed" notice. The port has console (dev) and in-memory (test) implementations and an `UnconfiguredEmailSender` for production that logs *that* mail wasn't sent but never the link — **a real SES/SMTP transport (via the BullMQ notifications worker, §8) is still to build, so reset cannot complete in production yet.**
+
+**CSRF** — the only cookie-authenticated endpoints are `refresh`/`logout`; they rely on `SameSite=Strict`, an `Origin` allow-list check, and JSON-only bodies. Everything else uses a bearer header, which browsers don't attach automatically.
+
+**Authorization (RBAC)**
+- Permissions are `module.action` strings (`inventory.approve_adjustment`), the canonical list is `PERMISSIONS` in `packages/types` (one spelling shared by API, tests and frontend guards — a typo is a compile error). 32 permissions, 13 system roles.
+- The role → permission matrix (`apps/api/src/modules/auth/rbac/role-matrix.ts`) is **backend policy as code**, upserted to the database at every boot (`syncRbac`), so a system role can't drift by hand edit. Nothing else in the codebase names a role.
+- Routes never check roles. They compose **policies** — predicates over the caller's permissions (`hasAll`/`hasAny`) — via `requirePermission(...)` / `requireAnyPermission(...)` / `authorize(policy)`. A denial is audited and answered `403` before the handler runs.
+- **No privilege escalation.** `settings.manage_users` lets you administer users, not mint power: you can only grant roles whose permissions you hold, only manage users whose permissions you hold, never change your own roles, never deactivate yourself. `ADMIN` = `SUPER_ADMIN` minus `settings.manage_roles`, so an `ADMIN` structurally cannot create or modify a `SUPER_ADMIN`. These rules are expressed in permissions, not role names.
+- The frontend (`useAuth().can`, `<RequirePermission>`, the filtered sidebar, the forbidden screen) is UX only. `/auth/me` returns the caller's permissions to *drive UI*; bypassing it in devtools yields an empty page and a 403 from the API (verified end-to-end).
+
+**Audit logging** — `auditLogs` is append-only (same Mongoose enforcement as the inventory ledger). Recorded: every login (success/failure with the real reason), logout, refresh reuse, password change/reset request/complete/reject, every authorization denial (who, method, path, missing permission), user create/update/role change/deactivate/session revoke, custom-role changes, and *reading* the audit log itself. Metadata is scrubbed of anything credential-shaped and size-capped. `recordAudit` **fails open** (logs and swallows write errors) so an audit outage can't take down sign-in or become a DoS lever — revisit to fail-closed for financial mutations when those controllers exist. `auditRequest(action)` middleware is available for future sensitive routes (price override, stock adjustment) that don't audit in their service.
+
+**Known limitations** — refresh in two tabs at once is serialised with the Web Locks API (the cookie jar is shared, so this is enough); browsers without it could hit reuse-detection and be signed out (safe failure). B2C/B2B customer login UIs, MFA, and per-branch data scoping are not built.
+
+## 7A. Catalogue & media — **implemented**
+
+- **Layering.** Repositories (parse with the shared Zod schemas, one collection each) → services (`product.service`, `taxonomy.service`, `variant.service`: reference checks, uniqueness across the SKU namespace, cycle/delete guards, audit) → thin routers (`/api/products`, `/api/catalog/{categories,collections}`, `/api/media`) that only declare `requirePermission(catalog.view|catalog.manage)`. No role names anywhere.
+- **List endpoint.** One `GET /api/products` does search (every word must match SKU/name/slug/tag or a variant SKU, regex-escaped), filters, case-insensitive sort with a stable `_id` tiebreak, and pagination, returning small row summaries (metal/category/collection names resolved in batched lookups, not N+1). Its query contract (`productListQuerySchema`) is shared: the ERP encodes its URL state with the same schema the API validates with.
+- **Media storage port.** `MediaStorage { put, get, exists }`; product code only holds opaque keys. `createLocalDiskStorage` (dev/single node; re-validates keys against traversal) and `createMemoryStorage` (tests, `dev:memory`) exist; **production needs an S3-compatible adapter** — the only thing to write, nothing else changes. Media URLs are built from `API_PUBLIC_URL` at read time so they're environment-correct and never persisted.
+- **Frontend.** TanStack Query (cache cleared whenever nobody is signed in), list state in the URL, forms via React Hook Form with a resolver that validates the *API payload* against the API's own Zod schema (one copy of every rule, in `packages/validation`).
 
 ## 8. Infrastructure
 

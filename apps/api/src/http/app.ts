@@ -1,0 +1,74 @@
+import cookieParser from "cookie-parser";
+import cors from "cors";
+import express, { type Express } from "express";
+import helmet from "helmet";
+import type { AppConfig } from "../config/app-config";
+import { createAuthService } from "../modules/auth/auth.service";
+import type { EmailSender } from "../modules/auth/email";
+import { createInventoryQueryService } from "../modules/inventory/inventory-query.service";
+import { createInventoryService } from "../modules/inventory/inventory.service";
+import { createProductService } from "../modules/catalog/product.service";
+import { createTaxonomyService } from "../modules/catalog/taxonomy.service";
+import { createVariantService } from "../modules/catalog/variant.service";
+import { createMediaService } from "../modules/media/media.service";
+import { createLocalDiskStorage, type MediaStorage } from "../modules/media/storage";
+import { createRoleAdminService } from "../modules/auth/role-admin.service";
+import { createUserAdminService } from "../modules/auth/user-admin.service";
+import { createAuthenticate, createOptionalAuthenticate } from "./middleware/authenticate";
+import { errorHandler, notFoundHandler } from "./middleware/error-handler";
+import { createRateLimiters } from "./middleware/rate-limit";
+import { requestContext } from "./middleware/request-context";
+import { createAuditRouter } from "./routes/audit.routes";
+import { createAuthRouter } from "./routes/auth.routes";
+import { createInventoryRouter } from "./routes/inventory.routes";
+import { createMediaRouter } from "./routes/media.routes";
+import { createProductsRouter } from "./routes/products.routes";
+import { createRolesRouter } from "./routes/roles.routes";
+import { createTaxonomyRouter } from "./routes/taxonomy.routes";
+import { createUsersRouter } from "./routes/users.routes";
+
+export interface AppDeps {
+  config: AppConfig;
+  emailSender: EmailSender;
+  /** Defaults to local disk under `config.media.dir`; tests inject an in-memory store. */
+  mediaStorage?: MediaStorage;
+}
+
+/** Builds the Express app without listening — so tests drive it in-process and server.ts owns the socket. */
+export function createApp({ config, emailSender, mediaStorage }: AppDeps): Express {
+  const app = express();
+  app.disable("x-powered-by");
+  if (config.trustProxy) app.set("trust proxy", 1);
+
+  app.use(helmet());
+  app.use(
+    cors({
+      origin: (origin, callback) => callback(null, !origin || config.allowedOrigins.includes(origin)),
+      credentials: true,
+    })
+  );
+  app.use(express.json({ limit: "100kb" }));
+  app.use(cookieParser());
+  app.use(requestContext);
+
+  const authService = createAuthService({ config, emailSender });
+  const authenticate = createAuthenticate(authService);
+  const optionalAuthenticate = createOptionalAuthenticate(authService);
+  const limiters = createRateLimiters(config);
+
+  app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
+  app.use("/api/auth", createAuthRouter({ config, authService, authenticate, optionalAuthenticate, limiters }));
+  app.use("/api/users", createUsersRouter({ authenticate, userAdmin: createUserAdminService({ config }) }));
+  app.use("/api", createRolesRouter({ authenticate, roleAdmin: createRoleAdminService() }));
+  app.use("/api/audit-logs", createAuditRouter({ authenticate }));
+  const media = createMediaService(mediaStorage ?? createLocalDiskStorage(config.media.dir), config.media.publicBaseUrl);
+  app.use("/api/inventory", createInventoryRouter({ authenticate, queries: createInventoryQueryService({ media }), inventory: createInventoryService() }));
+  app.use("/api/media", createMediaRouter({ authenticate, media }));
+  app.use("/api/products", createProductsRouter({ authenticate, products: createProductService({ media }), variants: createVariantService() }));
+  app.use("/api/catalog", createTaxonomyRouter({ authenticate, taxonomy: createTaxonomyService() }));
+
+  app.use(notFoundHandler);
+  app.use(errorHandler(config.env === "production"));
+  return app;
+}

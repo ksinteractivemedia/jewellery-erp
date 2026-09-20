@@ -9,6 +9,7 @@ const productCategorySchema = new Schema<ProductCategoryAttrs>(
   {
     name: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    description: String,
     parentId: { type: Schema.Types.ObjectId, ref: "ProductCategory" },
     isActive: { type: Boolean, default: true },
   },

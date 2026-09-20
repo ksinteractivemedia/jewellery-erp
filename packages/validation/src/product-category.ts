@@ -1,16 +1,20 @@
 import { z } from "zod";
 import { zId } from "./common";
+import { zSlug } from "./slug";
 
 export const createProductCategorySchema = z.object({
-  name: z.string().min(1),
-  slug: z
-    .string()
-    .min(1)
-    .regex(/^[a-z0-9-]+$/, "slug must be lowercase, alphanumeric and hyphens only"),
+  name: z.string().trim().min(1).max(120),
+  /** Optional on create — derived from the name when omitted. */
+  slug: zSlug.optional(),
+  description: z.string().trim().max(1000).optional(),
   parentId: zId.optional(),
   isActive: z.boolean().default(true),
 });
 export type CreateProductCategoryInput = z.input<typeof createProductCategorySchema>;
 
-export const updateProductCategorySchema = createProductCategorySchema.partial();
+/** `parentId: null` moves a category to the top level; `description: null` clears it. */
+export const updateProductCategorySchema = createProductCategorySchema.partial().extend({
+  parentId: zId.nullable().optional(),
+  description: z.string().trim().max(1000).nullable().optional(),
+});
 export type UpdateProductCategoryInput = z.input<typeof updateProductCategorySchema>;

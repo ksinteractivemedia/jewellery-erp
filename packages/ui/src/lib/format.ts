@@ -30,3 +30,10 @@ export function formatPercentage(value: number, opts?: { precision?: number }) {
   const precision = opts?.precision ?? 2;
   return `${value.toFixed(precision)}%`;
 }
+
+const dateFormat = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+
+/** "20 Sep 2026". Accepts an ISO string because that is what JSON APIs hand the frontend. */
+export function formatDate(value: Date | string) {
+  return dateFormat.format(typeof value === "string" ? new Date(value) : value);
+}
