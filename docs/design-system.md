@@ -63,6 +63,7 @@ Built on shadcn/ui primitives (Radix underneath), restyled to tokens above — n
 
 - **Actions:** Button (primary/secondary/ghost/destructive/link variants, loading state, `size="icon"` in place of a separate IconButton), DropdownMenu, CommandPalette (⌘K)
 - **Forms:** Input, Textarea, Select, Combobox, SearchInput, DatePicker, CurrencyInput, WeightInput, PercentageInput, Checkbox, Label, FormField (label/error/hint wrapper), FormSection
+- **Charts & dashboard primitives:** TrendChart (stacked columns over time), BarList (ranked bars with the figure printed beside each), SplitBar (a bar cut into shares, legend as text), Meter (a bounded gauge) — dependency-free, see §7
 - **Data display:** Table + DataTable (sortable, selectable, client-driven — collapses to a stacked-card list below `md` instead of a server-driven mode), Pagination, Card family, Badge, StatusBadge (generic tone+label; InventoryStatusBadge/OrderStatusBadge map the actual enums onto it), MetricCard
 - **Navigation:** Tabs, Breadcrumb, PageHeader, SectionHeader, Sidebar + Topbar + ERPLayout + MobileNavigation (ERP/portal shell), FilterBar, DataToolbar, BulkActionBar, DetailPanel
 - **Feedback:** Dialog + ConfirmDialog, Drawer (one component, `side="left"|"right"|"bottom"`, built on Radix Dialog rather than a separate sheet library), Toast/Toaster + `toast()` hook, Alert, EmptyState, Skeleton
@@ -73,7 +74,7 @@ React Hook Form + Zod (`packages/validation`) wiring happens where these are con
 
 Each component: one visual style, consumed identically across all three apps (theme-driven differences only, no per-app component forks). Full list in `packages/ui/src/index.ts`.
 
-**Server/Client boundary rule (important for anyone adding a component):** any component that calls a React hook itself, or attaches an event handler to a raw host element it renders (not merely forwarding to an already-`"use client"` Radix primitive), must have `"use client"` at its own top — regardless of whether today's callers happen to be Client Components. ERP pages are Server Components by default; several Phase 0.5 components only surfaced this gap once Phase 0.75 rendered them from real server-rendered pages. See progress.md, Phase 0.75, for the full list of components this applied to and the one exception that matters: a Server Component still cannot pass a column-defs-with-render-functions prop to a Client Component like `DataTable` — that always needs a small local Client Component wrapper at the call site (e.g. `apps/erp/components/recent-orders-table.tsx`).
+**Server/Client boundary rule (important for anyone adding a component):** any component that calls a React hook itself, or attaches an event handler to a raw host element it renders (not merely forwarding to an already-`"use client"` Radix primitive), must have `"use client"` at its own top — regardless of whether today's callers happen to be Client Components. ERP pages are Server Components by default; several Phase 0.5 components only surfaced this gap once Phase 0.75 rendered them from real server-rendered pages. See progress.md, Phase 0.75, for the full list of components this applied to and the one exception that matters: a Server Component still cannot pass a column-defs-with-render-functions prop to a Client Component like `DataTable` — that always needs a small local Client Component wrapper at the call site (e.g. `apps/erp/components/catalog/product-list.tsx` around its columns).
 
 ## 6. States & interaction rules
 
@@ -86,7 +87,22 @@ Each component: one visual style, consumed identically across all three apps (th
 
 ## 7. Charts / data visualization
 
-Any chart, KPI tile, or dashboard element follows the project's dataviz conventions (categorical/sequential palette derived from the token set, not arbitrary chart-library defaults) — load the dataviz skill at implementation time rather than inventing chart styling ad hoc here.
+Implemented for the ERP dashboard (`packages/ui`: `TrendChart`, `BarList`, `SplitBar`, `Meter`). They are plain HTML/CSS rather than a charting library: crisp at any width, no measuring, nothing to bundle, and easy to make accessible.
+
+- **The number is always text.** A bar only adds shape; the figure is printed beside it. `TrendChart` columns are focusable buttons whose accessible name carries the exact values (`"Tue, 1 Sept: B2C ₹1,73,400, B2B ₹0"`), so keyboard and screen-reader users get the data, and a tooltip shows on hover *and* focus. `BarList` is a real `<ul>`; `Meter` is `role="meter"`.
+- **Palette from tokens, not chart defaults.** Two categorical series use `--color-primary` (B2C) and `--color-info` (B2B); rankings and stock breakdowns use a calm neutral or `info`. The brand orange stays a signal — never the fill of a large area.
+- **Zero is drawn, not omitted.** A quiet day is a zero-height column (the API zero-fills the series) so the shape of time is honest; an axis maximum is rounded to 1/2/2.5/5 × 10ⁿ so gridlines land on round numbers.
+- **Density adapts:** at most ~8 x-axis labels on a wide chart, ~4 on a phone (labels never collide); daily columns up to 45 days, weekly beyond.
+- **A KPI tile carries one number**, its change against the previous period (colour follows direction only), and one short caption. It has four states besides "ok": loading (skeleton), *not connected yet* (a dash and the reason — never a zero), *restricted* (a lock, for a figure the caller may not see), and *sample* (a quiet "Sample" marker; the banner and section headers carry the full label).
+- **Prefer a section that says what it covers**: each dashboard card's caption is either the date range it applied or "Current position" for a snapshot, so a filter that doesn't reach a section is never silent.
+
+## 7A. Storefront language (`apps/b2c-store`)
+
+The storefront is the same brand as the ERP but deliberately does **not** look like it: editorial and quiet, generous whitespace, the Fraunces display face for headings and a wide-tracked uppercase for small labels, square (unrounded) image frames, hairline rules, warm neutrals with black and white doing the work.
+- **Orange is a signal.** `#FF9900` marks primary CTAs (Add to bag), the bag count and small accents. **Text on it is black** (white on `#FF9900` fails contrast); it is never a large fill.
+- **A live price is labelled.** Prices that come from a moving metal rate carry a "Live price" mark and a one-line explanation; the breakdown is a native `<details>` so it works without JavaScript. "Price on request" replaces the price and the buy buttons — never a placeholder number.
+- **Images load progressively:** a tinted placeholder, a short fade-in on load, a monogram fallback on failure, `loading="lazy"` except the first image. Motion is limited to fades, small translations and a slow image scale on hover, and is switched off under `prefers-reduced-motion`.
+- **Mobile first:** phone header with menu + search left and wishlist + bag right around a centred wordmark; swipeable scroll-snap gallery with a counter; filter sheet that reports the live result count; a sticky bottom buy bar that appears only once the real buttons scroll away.
 
 ## 8. What this doc is not
 

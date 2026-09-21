@@ -12,14 +12,34 @@ These are the rules the system must enforce regardless of which channel (ERP/B2C
 1.3. **Once a price is used in a commercial document (order line, invoice line), it is captured as an immutable `PriceSnapshot`** and never recalculated from current rates.
    - Why: today's gold rate must never retroactively change yesterday's invoice.
 
-1.4. **B2B customers may have negotiated prices or a customer/group-specific price list**, expressed as `PricingRule`s scoped to a `CustomerGroup` or individual `Customer`, evaluated with higher priority than the general list price.
-   - **Implemented (Phase 1):** `PricingRule` scoping is explicit typed fields (`customerType`, `customerGroupId`, `priceListId`, `metalId`, `purity`, `categoryId`), not a generic scope/scopeRefId pair — see data-model.md §7. Resolution among several matching rules is `priority` (higher wins), then specificity (more scoping fields set wins), then most recent `validFrom` — `resolveApplicableRule` in `apps/api/src/modules/pricing/pricing-rule.validation.ts`. The pricing engine itself (Phase 2) is the only caller.
+1.4. **B2B customers may have negotiated prices or a customer/group-specific price list**, expressed as `PricingRule`s scoped to a `Customer`, `CustomerGroup` or `PriceList`, and they outrank general rules.
+   - **Implemented (Phase 2).** Which rule governs a calculation is fixed by `resolvePricingRules` in `packages/pricing-engine`, in this order: **tier** (customer-specific → customer group → price list → category → default; a rule's tier is the most specific "who" it names) → higher `priority` (breaks ties *inside* a tier only — a loud default never beats a quiet customer rule) → more specific scope (metal, purity, customer type, channel…) → later `validFrom` → lowest id. A rule applies only if **every** scope field it sets matches. Effective dating is `validFrom` inclusive, `validTo` exclusive, so back-to-back rules never overlap or gap.
+   - Making, wastage and discount are resolved **independently**. A wastage of `NONE` is an explicit choice (a customer's "no wastage" overrides a default 2%); absence means "not defined here".
+   - The result never depends on the order rules are supplied. If the final id tie-break decides anything it is reported as an `AMBIGUOUS_RULES` warning, and `apps/api` refuses to save a rule that would create such a tie (`assertNoAmbiguousPricingRule`).
 
 1.5. **Price overrides (manual discount at time of sale) must be recorded with who approved it and why**, as part of the `PriceSnapshot`/`Transaction`, not as a silent adjustment.
 
-1.6. **Tax (GST/CGST/SGST/IGST) is computed by a configurable `TaxRule`**, resolved from HSN code, buyer state, seller state, and effective date — never hardcoded as a fixed percentage in code.
+1.6. **Tax (GST/CGST/SGST/IGST) is computed by a configurable `TaxRule`**, resolved from HSN code and effective date — never hardcoded as a fixed percentage in code.
+   - **Implemented (Phase 2):** a rule carries `intraState { cgst, sgst }` and `interState { igst }`; the engine only decides *which side applies* by comparing seller and buyer state (case-insensitive), and each component is rounded on its own as printed on the invoice. `resolveTaxRule` picks the active rule for the HSN with the latest `validFrom` and **refuses** two rules starting on the same instant. The `taxRules` collection/CRUD is Phase 7 — until then rules are typed in (playground) or passed in.
 
 1.7. **A pricing rule's cross-field validity (at least one of makingCharge/wastage/discount set, percentage values within 0–100, `validTo` after `validFrom`) is re-checked against the merged document on every update, not just the incoming patch.** A patch that looks valid in isolation (e.g. "clear `makingChargeType`") can still leave the persisted rule doing nothing at all if it had no other calculation dimension — `assertValidMergedPricingRule` in `pricing-rule.validation.ts` is the enforcement point. *(Implemented Phase 1.)*
+
+1.8. **Order of calculation and the basis of each charge** (`calculatePrice`):
+   - `metalValue` = **net** weight × the rate *for the piece's purity*. A rate is quoted for one purity (usually 24K); another purity's rate is `rate × fineness ÷ quotedFineness`. Metal is valued from net weight directly — never through the 3-decimal *fine* weight, which would introduce up to ₹3 of rounding drift on a 22K piece. `fineWeight` is derived/verified and reported.
+   - `wastage`: `PERCENTAGE` of net weight, or `FIXED_WEIGHT` grams for the line; the wastage weight is then valued exactly like metal. `NONE` = nothing.
+   - `making`: `PERCENTAGE` of the **metal value only** (not of wastage, stones or the subtotal); `PER_GRAM` paise per gram of **net** weight; `FIXED` paise for the whole line; `PER_PIECE` paise × pieces.
+   - `subtotal` = metal + wastage + making + stones. `discount` (`PERCENTAGE` or `FLAT`, applying to the `TOTAL` subtotal or to `MAKING_CHARGES` only) comes off it → `taxableValue`. GST is charged on `taxableValue`; `finalAmount` = taxable + tax.
+   - Weights, stone value and cost are **line totals**; `pieces` matters only for `PER_PIECE` making.
+
+1.9. **Money is exact.** Integer paise, integer milligrams, BigInt arithmetic, one rounding per component (half away from zero). Inputs with more precision than the field allows (a fourth decimal on a weight, a fractional paisa) are refused, not rounded. Float noise (`0.1 + 0.2`) is tolerated because it is not real precision. A wrong number of paise here is a wrong invoice, so no shortcut through floating point is acceptable.
+
+1.10. **The engine refuses instead of guessing.** Stone weight ≥ gross, a supplied net/fine weight that disagrees with gross − stone / net × fineness, a rate for a different metal, a fixed wastage above the net weight, and a flat discount larger than the amount it applies to are all errors — a flat discount is *not* clamped, because clamping would quietly sell a piece for nothing when ₹50,000 is typed for ₹5,000. Each error names the offending field.
+
+1.11. **No making-charge rule is a warning, not a silent zero.** `priceItem` still prices, but returns `NO_MAKING_RULE` so the caller (and later the order flow) can decide whether that is acceptable. A sale below cost returns `BELOW_COST`.
+
+1.12. **Cost and margin are internal.** The breakdown can carry `estimatedCost`, `grossMargin` and `marginPercentage` (taxable value − cost). The playground endpoint therefore requires `pricing.manage`, not `pricing.view`. Any channel that shows a price to a customer or to staff without cost visibility must strip these fields (a dedicated cost-visibility permission is still to be added).
+
+1.13. **The internal pricing playground is a what-if tool, not a pricing path.** It reads stored rules and the metal master, calls the engine and returns the breakdown; it stores nothing, audits nothing (nothing was sold or changed) and is not connected to any order. A hand-entered value in it is an *override* of one dimension and is labelled as such in the response.
 
 ## 2. Inventory
 
@@ -65,7 +85,7 @@ These are the rules the system must enforce regardless of which channel (ERP/B2C
 
 3.1. **Order is a single model with a `channel` discriminator** (`B2C` / `B2B`), not two parallel implementations, because both eventually generate invoices and shipments against the same inventory.
 
-3.2. **B2C orders normally require online payment before confirmation**; inventory is reserved at order creation and released if payment fails/expires.
+3.2. **B2C orders require online payment before confirmation**; inventory is reserved at order creation and released if payment fails/expires. *(Implemented Phase 3.5 — see §11.)*
 
 3.3. **B2B orders may reference a `PurchaseOrder`** raised by the customer and may be confirmed with **offline/deferred payment**, subject to credit rules (§4).
 
@@ -143,3 +163,61 @@ These are the rules the system must enforce regardless of which channel (ERP/B2C
 8.3. **Mock/sample data is never mixed into production service code.** Where mock data is needed during UI development, it must be clearly isolated (e.g. a `*.mock.ts` file or a seed script) and never reachable from a real request path.
 
 8.4. **Every ref field crosses the API boundary as a plain string, never a raw Mongoose `ObjectId`.** `apps/api/src/shared/to-dto.ts` converts recursively (including inside embedded arrays) at every repository function's return — so `packages/types`' `id: string` contract is actually true at runtime, not just in the type layer. *(Implemented Phase 1.)*
+
+## 9. Dashboard
+
+9.1. **No invented metrics.** Every dashboard figure is computed from data the system actually holds. Where the module that owns a metric does not exist yet, its section reports `NOT_CONNECTED` and says what it needs — it is never shown as zero, and never estimated. A zero means "we looked and there was none".
+
+9.2. **Sample data is labelled wherever it appears.** A development adapter may feed sections that have no backend, but only in development, only through the same aggregators a real provider will use, and every figure it supplies is marked `SAMPLE` (banner, section badge, tile marker). Production registers no adapter. The sample facts follow fixed arithmetic patterns, never a random source.
+
+9.3. **Definitions.** *Revenue* = taxable value, before GST. *Orders* = distinct orders, not order lines. *Gross margin* = revenue − cost. A KPI's *change* compares the selected range with the equally long period immediately before it, and is absent (not zero) when that period had no sales. *Today's revenue* is the current business day whatever range is selected. *Outstanding* = unpaid invoice balance; *overdue* = the part past its due date (an invoice is not overdue on the instant it falls due); *credit utilisation* = drawn ÷ extended, and may exceed 100%.
+
+9.4. **A business day is a calendar day in the business timezone (IST), not in UTC.** Ranges are inclusive of both ends; a range is at most 366 days.
+
+9.5. **Snapshots do not follow the date range.** Stock position, queues and alerts describe the present; each section states whether it covers a date range or the current position, and which filters it applied.
+
+9.6. **Stock definitions.** *Owned stock* = every status except SOLD and MELTING (incl. pieces at job workers, hallmarking, repair and in transit). *Available pieces* = finished jewellery, AVAILABLE, not reserved. *Stock value* = book cost of owned stock, with the indicative metal value at today's rate beside it (a metal without a rate is excluded and named; with no rates at all the value is absent, not zero). *Gold / Silver stock* is shown as fine weight, with net weight and piece count.
+
+9.7. **"Pending" operations are pieces, not orders.** Job work, hallmarking and repairs are counted as pieces currently in that status (the system has no job-work-order entity yet), each with how long it has been there, measured from the ledger entry that put it there. Attention thresholds (transfers in transit > 3 days; pieces away > 14 days) are operational judgement calls kept in one place and returned in the response so the screen states them.
+
+9.8. **Alerts come from real state** — stock adjustments awaiting approval (and those that can no longer be approved because the piece moved), overdue transfers, pieces away too long, reservations that lapsed but still hold stock, returns awaiting inspection, damaged pieces awaiting a decision. An empty list is a real answer.
+
+9.9. **Cost-derived figures follow visibility, on the server.** Gross margin needs `accounting.view`; without it the API returns `{ restricted: true }` and no margin figure — hiding it in the UI would not be enough.
+
+## 10. Storefront
+
+10.1. **A dynamic price is presented as dynamic.** Where the price is calculated from today's metal rate, the storefront says so ("Live price", "calculated now"), shows the breakdown, and never presents a stored tag price. The price is inclusive of GST, shown as one figure with GST itemised in the breakdown.
+
+10.2. **The storefront never guesses a price.** If the engine cannot price a piece — no weight, stones without a stone value, no rate for the metal/purity, no making rule, no active GST rule — the piece is `ON_REQUEST` with the reason, it cannot be bought, and its structured data carries no offer. "Price on request" is a real answer, not an error.
+
+10.3. **No invented claims.** No reviews, ratings, testimonials, stock-scarcity claims, or policy text exist unless the business wrote them (`StorefrontContent`); development seed text is marked as sample. Structured data never includes `aggregateRating`.
+
+10.4. **Availability is real stock.** In stock / low stock / out of stock come from unreserved, available finished pieces; a design sold by size is available if any size is, and a bag line needs a size. A bag quantity is capped at what is actually available and re-checked by the server quote.
+
+10.5. **Nothing is bought that cannot be fulfilled.** Checkout is a guest flow that holds real stock and takes payment through a provider (§11); with no payment provider configured it says online ordering is unavailable. Accounts and order history are not built and say so.
+
+10.6. **Price filters and sorts act on live prices** (in whole rupees in the URL, paise in the API); on-request pieces are excluded from a price range and sort last.
+
+10.7. **The bag and wishlist hold identifiers only** (slug, size, quantity) on the device — never a price.
+
+## 11. Checkout, orders & payment
+
+11.1. **The backend recalculates everything before payment.** Price, stock, delivery fee, GST split and total come from the server. A price, discount, total or stock level in a request is refused. The only customer-supplied figure is the total they saw, used to detect change.
+
+11.2. **A price change is never silent.** If the server's total differs from the one the customer agreed to, no order is created; they are shown the new total and must accept it explicitly.
+
+11.3. **Stock is held before payment** (`RESERVATION`, 20 min by default) in the same transaction that makes the order payable, and released if payment fails for good, the order is cancelled, or the hold expires. A piece is `SOLD` (ledger `SALE`) only when payment is captured.
+
+11.4. **An order's money and lines are frozen** — one immutable `PriceSnapshot` per line (engine inputs and output, rate and its effective time). Metal-rate changes never change an existing order; corrections are refunds or new documents.
+
+11.5. **Only the provider can say a payment succeeded.** The browser's redirect proves nothing; the API asks the provider, or verifies a signed webhook. Reports are idempotent and never move a payment backwards; a duplicate webhook has no effect.
+
+11.6. **Money that can't be honoured goes back.** A capture for an order that is cancelled, already paid, out of stock or short/over-paid is refunded automatically. A refund never exceeds what was captured.
+
+11.7. **Cancellation.** Before payment: free. After payment and before packing: full refund, pieces come back for inspection before resale. After packing: a return, not a cancellation.
+
+11.8. **Guests are supported; an order is opened only with its access token** — a wrong token is indistinguishable from no such order.
+
+11.9. **No gateway, no order.** With no payment provider configured, the storefront neither takes orders nor holds stock.
+
+11.10. **Order statuses:** DRAFT, PENDING_PAYMENT, PAYMENT_FAILED, PAID, CONFIRMED, PACKED, SHIPPED, DELIVERED, CANCELLED, RETURN_REQUESTED, RETURNED, REFUNDED. **Payment statuses:** PENDING, AUTHORIZED, CAPTURED, FAILED, REFUNDED, PARTIALLY_REFUNDED. Transitions are defined once (`order-status.ts`).

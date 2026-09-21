@@ -5,6 +5,11 @@ import { loadConfig } from "../src/config/app-config";
 import { createApp } from "../src/http/app";
 import { seedCatalog } from "../seed/catalog.seed";
 import { seedInventory } from "../seed/inventory.seed";
+import { seedPricingRules } from "../seed/pricing.seed";
+import { seedStorefront } from "../seed/storefront.seed";
+import { createSampleDashboardProviders } from "../dev-adapters/dashboard-sample";
+import { createSandboxProvider, startSandboxPaymentPage } from "../dev-adapters/payment-sandbox";
+import { startOrderExpirySweep, type OrdersModule } from "../src/modules/orders";
 import { createMediaService } from "../src/modules/media/media.service";
 import { createMemoryStorage } from "../src/modules/media/storage";
 import { ConsoleEmailSender } from "../src/modules/auth/email";
@@ -35,7 +40,7 @@ for (const name of ALL_ROLE_NAMES) {
 const config = loadConfig({
   NODE_ENV: "development",
   JWT_ACCESS_SECRET: "dev-only-secret-dev-only-secret-dev-only!!",
-  ALLOWED_ORIGINS: "http://localhost:3000",
+  ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:3001",
   BCRYPT_ROUNDS: "4",
   RATE_LIMIT_ENABLED: "false",
   PORT: process.env.PORT ?? "4000",
@@ -52,7 +57,26 @@ const stock = await seedInventory({
 });
 console.log(`[dev-memory] seeded inventory: ${stock.pieces} pieces across ${stock.locations} locations, with sales, returns, hallmarking, job work, transfers and adjustments`);
 
-createApp({ config, emailSender: new ConsoleEmailSender(), mediaStorage }).listen(config.port, () => {
+const pricing = await seedPricingRules();
+console.log(`[dev-memory] seeded pricing: ${pricing.rules} rules (retail/wholesale gold defaults, studded 18K, silver, a festive making-charge offer)`);
+
+const storefront = await seedStorefront();
+console.log(`[dev-memory] seeded storefront: GST rule, sample content and curation, stones on ${storefront.stoneDesigns} designs (one with no stone value, so "price on request" shows)`);
+
+// Orders, invoicing and credit do not exist yet, so the dashboard's Sales and B2B sections would say "not connected".
+// In dev only, a sample adapter feeds them — labelled SAMPLE on screen. Production registers no providers.
+const dashboardProviders = await createSampleDashboardProviders();
+console.log("[dev-memory] dashboard: Sales and B2B sections are fed by the SAMPLE development adapter (apps/api/dev-adapters)");
+
+// Payments: a sandbox gateway with its own hosted payment page, so checkout can be walked end to end. It moves no money.
+const SANDBOX_PAY_PORT = 4100;
+const sandbox = createSandboxProvider({ payPageBaseUrl: `http://localhost:${SANDBOX_PAY_PORT}` });
+startSandboxPaymentPage(sandbox, { port: SANDBOX_PAY_PORT, webhookUrl: `http://localhost:${config.port}/api/store/payments/webhooks/sandbox` });
+console.log(`[dev-memory] payments: SANDBOX gateway (hosted page on :${SANDBOX_PAY_PORT}) — no money moves`);
+
+const app = createApp({ config, emailSender: new ConsoleEmailSender(), mediaStorage, dashboardProviders, paymentProviders: [sandbox] });
+startOrderExpirySweep((app.locals.orders as OrdersModule).orders, 15_000);
+app.listen(config.port, () => {
   console.log(`[dev-memory] API on :${config.port} — demo users (password "${PASSWORD}"):`);
   for (const name of ALL_ROLE_NAMES) console.log(`  ${name.toLowerCase().replace(/_/g, ".")}@demo.test  (${name})`);
 });

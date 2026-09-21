@@ -19,5 +19,6 @@ export function createRateLimiters(config: AppConfig) {
   return {
     login: limiter(config.rateLimit.enabled, config.rateLimit.login),
     forgotPassword: limiter(config.rateLimit.enabled, config.rateLimit.forgotPassword),
+    storefrontWrite: limiter(config.rateLimit.enabled, config.rateLimit.storefrontWrite),
   };
 }

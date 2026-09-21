@@ -13,6 +13,7 @@
     "bootstrap-admin": "tsx scripts/bootstrap-admin.ts"
   },
   "dependencies": {
+    "@jewellery/pricing-engine": "workspace:*",
     "@jewellery/types": "workspace:*",
     "@jewellery/validation": "workspace:*",
     "bcryptjs": "^2.4.3",

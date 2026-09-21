@@ -10,7 +10,11 @@ import { createInventoryService } from "../modules/inventory/inventory.service";
 import { createProductService } from "../modules/catalog/product.service";
 import { createTaxonomyService } from "../modules/catalog/taxonomy.service";
 import { createVariantService } from "../modules/catalog/variant.service";
+import { createDashboardService, type DashboardProviders } from "../modules/dashboard";
 import { createMediaService } from "../modules/media/media.service";
+import { createOrdersModule, type PaymentProvider } from "../modules/orders";
+import { createStorefrontService } from "../modules/storefront/storefront.service";
+import { createPricingPreviewService } from "../modules/pricing/pricing-preview.service";
 import { createLocalDiskStorage, type MediaStorage } from "../modules/media/storage";
 import { createRoleAdminService } from "../modules/auth/role-admin.service";
 import { createUserAdminService } from "../modules/auth/user-admin.service";
@@ -19,11 +23,15 @@ import { errorHandler, notFoundHandler } from "./middleware/error-handler";
 import { createRateLimiters } from "./middleware/rate-limit";
 import { requestContext } from "./middleware/request-context";
 import { createAuditRouter } from "./routes/audit.routes";
+import { createCheckoutRouter } from "./routes/checkout.routes";
 import { createAuthRouter } from "./routes/auth.routes";
+import { createDashboardRouter } from "./routes/dashboard.routes";
 import { createInventoryRouter } from "./routes/inventory.routes";
 import { createMediaRouter } from "./routes/media.routes";
+import { createPricingRouter } from "./routes/pricing.routes";
 import { createProductsRouter } from "./routes/products.routes";
 import { createRolesRouter } from "./routes/roles.routes";
+import { createStorefrontRouter } from "./routes/storefront.routes";
 import { createTaxonomyRouter } from "./routes/taxonomy.routes";
 import { createUsersRouter } from "./routes/users.routes";
 
@@ -32,10 +40,14 @@ export interface AppDeps {
   emailSender: EmailSender;
   /** Defaults to local disk under `config.media.dir`; tests inject an in-memory store. */
   mediaStorage?: MediaStorage;
+  /** Sales and B2B data sources. None exist yet, so production registers none and those sections report NOT_CONNECTED; only dev-memory passes sample providers. */
+  dashboardProviders?: DashboardProviders;
+  /** Payment gateway adapters. None in production until a real one exists, so paying says "not available" instead of pretending; dev-memory and tests register the sandbox. */
+  paymentProviders?: readonly PaymentProvider[];
 }
 
 /** Builds the Express app without listening — so tests drive it in-process and server.ts owns the socket. */
-export function createApp({ config, emailSender, mediaStorage }: AppDeps): Express {
+export function createApp({ config, emailSender, mediaStorage, dashboardProviders, paymentProviders }: AppDeps): Express {
   const app = express();
   app.disable("x-powered-by");
   if (config.trustProxy) app.set("trust proxy", 1);
@@ -47,7 +59,15 @@ export function createApp({ config, emailSender, mediaStorage }: AppDeps): Expre
       credentials: true,
     })
   );
-  app.use(express.json({ limit: "100kb" }));
+  app.use(
+    express.json({
+      limit: "100kb",
+      // A webhook is authenticated by a signature over its exact bytes, so keep them (only for that route).
+      verify: (req, _res, buf) => {
+        if ((req as express.Request).originalUrl?.startsWith("/api/store/payments/webhooks/")) (req as express.Request).rawBody = buf.toString("utf8");
+      },
+    })
+  );
   app.use(cookieParser());
   app.use(requestContext);
 
@@ -65,6 +85,12 @@ export function createApp({ config, emailSender, mediaStorage }: AppDeps): Expre
   const media = createMediaService(mediaStorage ?? createLocalDiskStorage(config.media.dir), config.media.publicBaseUrl);
   app.use("/api/inventory", createInventoryRouter({ authenticate, queries: createInventoryQueryService({ media }), inventory: createInventoryService() }));
   app.use("/api/media", createMediaRouter({ authenticate, media }));
+  const ordersModule = createOrdersModule({ config, media, paymentProviders });
+  app.locals.orders = ordersModule;
+  app.use("/api/store", createCheckoutRouter({ orders: ordersModule, writeLimiter: limiters.storefrontWrite, optionalAuthenticate }));
+  app.use("/api/store", createStorefrontRouter({ storefront: createStorefrontService({ media }), writeLimiter: limiters.storefrontWrite }));
+  app.use("/api/dashboard", createDashboardRouter({ authenticate, dashboard: createDashboardService({ providers: dashboardProviders }) }));
+  app.use("/api/pricing", createPricingRouter({ authenticate, preview: createPricingPreviewService() }));
   app.use("/api/products", createProductsRouter({ authenticate, products: createProductService({ media }), variants: createVariantService() }));
   app.use("/api/catalog", createTaxonomyRouter({ authenticate, taxonomy: createTaxonomyService() }));
 

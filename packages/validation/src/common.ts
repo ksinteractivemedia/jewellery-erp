@@ -14,7 +14,6 @@ export const zPercent = z.number().min(0).max(100);
 export const zChannel = z.enum(["ERP", "B2C", "B2B"]);
 export const zChannelVisibility = z.enum(["ERP", "B2C", "B2B", "BOTH"]);
 export const zCustomerType = z.enum(["B2C", "B2B"]);
-export const zCalculationType = z.enum(["PERCENTAGE", "FLAT", "PER_GRAM"]);
 
 export const zAddress = z.object({
   line1: z.string().min(1),

@@ -163,15 +163,43 @@ A *request* to correct an item (found damaged, re-weighed, written off), applied
 ### `counters` — new (internal)
 `{ _id: key, seq }` — atomic allocation of `JE-`, `TRF-`, `ADJ-` numbers. Called outside business transactions on purpose (no contention; a rolled-back operation leaves a gap in a *reference number*, never in the ledger).
 
-## 7. Pricing — **implemented** (rules & lists only — the pricing engine itself is Phase 2)
+## 7. Pricing — **implemented** (rules & lists in Phase 1; the pricing engine and `TaxRule` shape in Phase 2)
 
 ### `pricingRules`
-Redesigned from Phase 0's generic `scope`/`scopeRefId` sketch into the explicit typed fields this phase asked for — more concrete, better type safety, and every scoping dimension is independently optional (narrower scope + higher `priority` wins; see `pricing-rule.validation.ts`).
-- `name`, `customerType`, `customerGroupId`, `priceListId`, `metalId`, `purity`, `categoryId`, `channel` (`ERP | B2C | B2B | BOTH`)
-- `makingChargeType`/`makingChargeValue` (`PERCENTAGE | FLAT | PER_GRAM`), `wastageType`/`wastageValue` (`PERCENTAGE | PER_GRAM`), `discount` (`{ type: PERCENTAGE | FLAT, value }`) — a rule must set at least one of these three (enforced by a Zod `.refine`, tested in `pricing-rule.validation.test.ts`)
-- `priority` (higher wins), `validFrom`, `validTo` (open-ended if unset), `isActive`
-- **Resolution contract** (`resolveApplicableRule` in `pricing-rule.validation.ts`, for Phase 2's pricing engine to call): filter to rules effective as of the transaction date, pick highest `priority`, break ties by specificity (more scoping fields set wins), then by most recent `validFrom`.
-- **Update contract:** a partial update's cross-field business rules (at least one calculation dimension, percentage bounds, date ordering) are re-validated against the *merged* document, not just the patch — `assertValidMergedPricingRule` — so a patch that looks fine in isolation can't leave the persisted rule invalid.
+Explicit typed scope fields (not a generic `scope`/`scopeRefId`), each independently optional. A rule applies only when **every** scope field it sets matches the calculation.
+- **Scope:** `customerId` *(new, Phase 2 — customer-specific pricing)*, `customerGroupId`, `priceListId`, `categoryId`, `customerType`, `metalId`, `purity`, `channel` (`ERP | B2C | B2B | BOTH`). Tier for resolution = the most specific of customer → group → price list → category, else default (business-rules.md §1.4).
+- **Making:** `makingChargeType` = `PERCENTAGE | PER_GRAM | FIXED | PER_PIECE` (was `PERCENTAGE | FLAT | PER_GRAM`), `makingChargeValue` — a percent for `PERCENTAGE`, **integer paise** for the others.
+- **Wastage:** `wastageType` = `PERCENTAGE | FIXED_WEIGHT | NONE` (was `PERCENTAGE | PER_GRAM`), `wastageValue` — percent, or grams (≤ 3 decimals) for `FIXED_WEIGHT`, absent for `NONE`.
+- **Discount:** `{ type: PERCENTAGE | FLAT, value, appliesTo?: TOTAL | MAKING_CHARGES }` — `FLAT` is integer paise.
+- `priority` (higher wins, **inside a tier only**), `validFrom` (inclusive), `validTo` (**exclusive**; open-ended if unset), `isActive`.
+- A rule must set at least one of making / wastage / discount (Zod `superRefine`). Types with money values must be whole paise; percentages 0–100 with ≤ 6 decimals.
+- **Resolution contract** lives in `packages/pricing-engine` (`resolvePricingRules`) — the old `resolveApplicableRule` in `apps/api` was removed so there is one implementation. See architecture.md §5.
+- **Update contract:** a partial update is re-validated against the *merged* document (`assertValidMergedPricingRule`), and, if the rule is active, checked for **ambiguity** against the other active rules (`assertNoAmbiguousPricingRule` → 409). Switching a type without its value ("12,000 paise per gram" → `PERCENTAGE`) is caught by the merged check.
+- *Migration note:* no production data existed when the type vocabulary changed (`FLAT → FIXED`, `PER_GRAM` wastage → `FIXED_WEIGHT`); a real deployment would need a one-off rewrite of stored `makingChargeType`/`wastageType`.
+
+### `taxRules` — shape defined in Phase 2, collection in Phase 3 (see below)
+`TaxRule` (`packages/types/src/tax-rule.ts`): `hsnCode`, `intraState { cgst, sgst }`, `interState { igst }`, `validFrom`, `validTo` (exclusive), `isActive`. The validation schema rejects a rule whose CGST + SGST ≠ IGST (a data-entry mistake under GST). No Mongoose model or CRUD yet: the engine consumes the shape, and the playground supplies it by hand.
+
+### `taxRules` — **implemented** (Phase 3; the admin UI arrives with Phase 7)
+Collection behind the `TaxRule` shape above (`apps/api/src/modules/compliance`): `hsnCode`, intra-state CGST+SGST, inter-state IGST (CGST+SGST must equal IGST), `validFrom` / `validTo` (exclusive), `isActive`. The storefront resolves the rule effective *now* for the configured HSN; none active means designs are `ON_REQUEST` (`PRICING_NOT_CONFIGURED`), never a guessed rate.
+
+### `storefrontContent` — new (Phase 3, one document)
+The business's own storefront words and curation: `brandName`, `tagline`, `announcements[]`, `hero`, `story`, `trust[]`, `policies { shipping, returns, care, delivery }`, `featuredCollections[]`, `featuredProducts[]` (slugs), `contact { email, phone }`, `pricing { hsnCode }`. Every editorial field is optional and absent means "not shown". Validated by `storefrontContentSchema`.
+
+### `newsletterSubscriptions` — new (Phase 3)
+`email` (unique, lower-cased), `subscribedAt`. Addresses are stored; nothing is sent yet.
+
+### `orders` — **implemented** (Phase 3.5)
+`orderNo` (unique `ORD-000123`), `channel` (`B2C`), `status` (12 values), `customer {userId?, fullName, email, phone}`, `shippingAddress`, `delivery {code, label, fee, estimate?}`, `items[]` (`productId`, `variantId?`, `slug`, `sku`, `name`, `quantity`, `priceSnapshotId`, and the frozen `unitPrice`, `lineTotal`, `taxableValue`, `gst`), `totals {taxableValue, gst, deliveryFee, total}`, `supplyType`, `idempotencyKey` (unique), `requestHash`, `holdExpiresAt`, `allocations[] {lineId, itemIds[]}` (the pieces held/sold — mutable fulfilment state), `paymentId` (the attempt that paid), `placedAt`, `paidAt`, `cancelledAt`, `cancelReason`, `statusHistory[]`. **Immutable at the Mongoose layer:** `orderNo`, `customer`, `shippingAddress`, `delivery`, `items`, `totals`, `supplyType`, `idempotencyKey`, `requestHash`, `placedAt`; orders are never deleted. Indexes: `{status, holdExpiresAt}`, `customer.email`, `{customer.userId, placedAt}`.
+
+### `priceSnapshots` — **implemented** (append-only)
+`orderId`, `productId`, `variantId?`, `sku`, `computedAt`, `inputs` (metal, purity, fineness, weights, stone value, quoted purity and rate per gram and its effective time, HSN, tax rule id, seller/buyer state, channel, customer type), `breakdown` (the pricing engine's full output for one unit, incl. CGST/SGST/IGST and the rules applied), `unitTotal`.
+
+### `payments` — **implemented**
+One per payment attempt: `orderId`, `provider`, `providerRef` (unique with provider), `amount` (= order total), `status` (PENDING · AUTHORIZED · CAPTURED · FAILED · REFUNDED · PARTIALLY_REFUNDED), `capturedAmount`, `capturedAt`, `refundedAmount` (refunds that succeeded), `method`, `failureReason`, `refunds[] {amount, status PENDING|SUCCEEDED|FAILED, reason, idempotencyKey, providerRefundRef}`, `attempt` (unique per order), `idempotencyKey` (unique).
+
+### `paymentEvents` — **implemented**
+Every webhook delivery: `provider`, `eventId` (unique together), `type`, `providerRef`, `amount`, `receivedAt`, `processedAt`, `outcome` (APPLIED · IGNORED). The unique key is what makes a redelivered webhook harmless.
 
 ### `priceLists`
 Versionable, effective-dated (this phase's explicit requirement).
@@ -212,7 +240,7 @@ PriceList (versioned by code) ── CustomerGroup, Customer
 
 ## 10. Notes on immutability & indexing (updated)
 
-- Append-only (enforced at the Mongoose layer, not just by convention): `inventoryLedger`, `transactions`, `metalRates`, `auditLogs`. `priceSnapshots` (Phase 2) will use the same `appendOnlyPlugin`.
+- Append-only (enforced at the Mongoose layer, not just by convention): `inventoryLedger`, `transactions`, `metalRates`, `auditLogs`. `priceSnapshots` (implemented Phase 3.5) uses the same `appendOnlyPlugin`.
 - Money: integer paise, plain `Number`. Weights: grams to 3 decimals, plain `Number`, rounded at every derivation point — see the revised decision at the top of this document.
 - Every `*Id` reference field is stored as a Mongoose `ObjectId` and typed as `string` in `packages/types`; `apps/api/src/shared/to-dto.ts`'s `deepStringifyObjectIds` converts between the two at every repository boundary, recursively (including inside embedded arrays), so nothing outside `apps/api` ever sees a raw `ObjectId`.
 - Every collection with an obvious hot query path has a compound index reflecting it (see each section above) — added when the query pattern was known, not guessed upfront, per architecture.md §9 risk #9.

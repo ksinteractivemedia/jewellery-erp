@@ -24,9 +24,6 @@ export type Channel = "ERP" | "B2C" | "B2B";
 
 export type CustomerType = "B2C" | "B2B";
 
-/** Sides of a weight/value calculation that can be expressed either way. */
-export type CalculationType = "PERCENTAGE" | "FLAT" | "PER_GRAM";
-
 export interface Address {
   line1: string;
   line2?: string;

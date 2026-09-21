@@ -37,3 +37,14 @@ const dateFormat = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "sh
 export function formatDate(value: Date | string) {
   return dateFormat.format(typeof value === "string" ? new Date(value) : value);
 }
+
+const inrCompact = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", notation: "compact", maximumFractionDigits: 1 });
+/** ₹12.5L / ₹1.2Cr — for tiles and chart axes where the exact paisa is noise. */
+export function formatCompactCurrency(amountInRupees: number) {
+  return inrCompact.format(amountInRupees);
+}
+
+const plainNumber = new Intl.NumberFormat("en-IN");
+export function formatNumber(value: number) {
+  return plainNumber.format(value);
+}

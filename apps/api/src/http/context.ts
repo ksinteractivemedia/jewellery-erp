@@ -13,6 +13,8 @@ declare global {
       ctx: RequestContext;
       /** Set by `authenticate`. Absent on unauthenticated routes. */
       auth?: AuthContext;
+      /** The exact bytes of a webhook body, kept so its signature can be verified. Only set for payment webhooks. */
+      rawBody?: string;
     }
   }
 }

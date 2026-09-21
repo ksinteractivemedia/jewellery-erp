@@ -16,6 +16,7 @@ import {
   sellItems,
 } from "../src/modules/inventory/stock-operations";
 import { receiveNewInventoryItem } from "../src/modules/inventory/inventory-transaction.service";
+import { ProductVariantModel } from "../src/modules/catalog/product-variant.model";
 import { MetalModel } from "../src/modules/metals/metal.model";
 import { createMetalRate } from "../src/modules/metals/metal-rate.repository";
 import { createBranch } from "../src/modules/organization/branch.repository";
@@ -101,7 +102,9 @@ export async function seedInventory(actors: InventorySeedActors) {
     const metal = [...metalByCode.values()].find((m) => String(m._id) === String(p.metalId));
     if (!metal || !p.purity) continue;
     const isCoinOrBar = /^(GLD|SLV)-CIN/.test(p.sku);
-    const count = isCoinOrBar ? 3 : /RNG|BNG/.test(p.sku) ? 2 : 1 + (rand() < 0.4 ? 1 : 0);
+    // A design offered in sizes has its pieces made in those sizes: each piece is assigned one (round-robin), so some sizes are in stock and some are not.
+    const sizes = await ProductVariantModel.find({ productId: p._id, isActive: true }).sort({ sku: 1 }).select("_id").lean();
+    const count = isCoinOrBar ? 3 : sizes.length ? Math.min(sizes.length, 3) : /RNG|BNG/.test(p.sku) ? 2 : 1 + (rand() < 0.4 ? 1 : 0);
     for (let n = 0; n < count; n++) {
       const base = p.defaultGrossWeight ?? 5;
       const gross = Math.round(base * (0.97 + rand() * 0.06) * 1000) / 1000;
@@ -114,6 +117,7 @@ export async function seedInventory(actors: InventorySeedActors) {
         item: {
           type: "FINISHED_JEWELLERY",
           productId: String(p._id),
+          ...(sizes.length ? { variantId: String(sizes[n % sizes.length]!._id) } : {}),
           metalId: String(p.metalId),
           purity: p.purity,
           grossWeight: gross,

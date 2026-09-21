@@ -1,0 +1,116 @@
+"""
+An INDEPENDENT reference implementation of the pricing arithmetic, used only to generate
+src/oracle-cases.ts. It shares no code with the TypeScript engine: it uses Python's exact `Fraction`
+and its own rounding, so agreement between the two is real evidence, not an echo.
+
+Regenerate:  python3 oracle/oracle.py > src/oracle-cases.ts   (from packages/pricing-engine)
+The generated file is committed; the seed is fixed so the output is stable.
+"""
+import json
+import random
+from fractions import Fraction as F
+from math import floor
+
+
+def rnd(x):
+    """Round half away from zero."""
+    x = F(x)
+    sign = 1 if x >= 0 else -1
+    return sign * floor(abs(x) + F(1, 2))
+
+
+def price(c):
+    gross, stone, fin, qf = F(str(c["gross"])), F(str(c["stone"])), F(str(c["fineness"])), F(str(c["quotedFineness"]))
+    rate, pieces = c["rate"], c["pieces"]
+    net = gross - stone
+    fine = rnd(net * fin * 1000) / 1000
+    metal = rnd(net * fin * rate / qf)
+
+    wastage_w, wastage_v = F(0), 0
+    w = c.get("wastage")
+    if w and w["type"] != "NONE":
+        wastage_w = rnd(net * 1000 * F(str(w["value"])) / 100) / 1000 if w["type"] == "PERCENTAGE" else F(str(w["value"]))
+        wastage_v = rnd(wastage_w * fin * rate / qf)
+
+    making = 0
+    m = c.get("making")
+    if m:
+        v = m["value"]
+        making = {"PERCENTAGE": lambda: rnd(metal * F(str(v)) / 100), "PER_GRAM": lambda: rnd(net * v), "FIXED": lambda: v, "PER_PIECE": lambda: v * pieces}[m["type"]]()
+
+    subtotal = metal + wastage_v + making + c["stoneValue"]
+    discount = 0
+    d = c.get("discount")
+    if d:
+        base = making if d.get("appliesTo") == "MAKING_CHARGES" else subtotal
+        discount = rnd(base * F(str(d["value"])) / 100) if d["type"] == "PERCENTAGE" else d["value"]
+    assert discount <= (making if d and d.get("appliesTo") == "MAKING_CHARGES" else subtotal)
+    taxable = subtotal - discount
+
+    if c["intra"]:
+        cgst, sgst, igst = rnd(taxable * F("1.5") / 100), rnd(taxable * F("1.5") / 100), 0
+    else:
+        cgst, sgst, igst = 0, 0, rnd(taxable * 3 / 100)
+    total_tax = cgst + sgst + igst
+    out = {
+        "net": float(net), "fine": float(fine), "metalValue": metal, "wastageWeight": float(wastage_w), "wastageValue": wastage_v,
+        "makingCharges": making, "subtotal": subtotal, "discount": discount, "taxableValue": taxable,
+        "cgst": cgst, "sgst": sgst, "igst": igst, "totalTax": total_tax, "finalAmount": taxable + total_tax,
+    }
+    if c.get("cost") is not None:
+        margin = taxable - c["cost"]
+        out["grossMargin"] = margin
+        out["marginPercentage"] = float(rnd(F(margin) * 10000 / taxable)) / 100 if taxable else None
+    return out
+
+
+def cases(n=60, seed=20260920):
+    rng = random.Random(seed)
+    purities = [("24K", 0.999), ("22K", 0.916), ("18K", 0.75), ("14K", 0.585), ("925", 0.925), ("950", 0.95)]
+    result = []
+    for _ in range(n):
+        code, fin = rng.choice(purities)
+        quoted = rng.choice([fin, 0.999])
+        gross_mg = rng.randint(500, 250_000)
+        stone_mg = rng.choice([0, 0, rng.randint(0, gross_mg - 1)])
+        c = {
+            "gross": gross_mg / 1000, "stone": stone_mg / 1000, "purity": code, "fineness": fin, "quotedFineness": quoted,
+            "rate": rng.randint(5_000, 900_000), "pieces": rng.choice([1, 1, 1, 2, 5, 12]),
+            "stoneValue": rng.choice([0, 0, rng.randint(1_000, 5_000_000)]), "intra": rng.random() < 0.5,
+        }
+        kind = rng.choice(["PERCENTAGE", "PER_GRAM", "FIXED", "PER_PIECE", None])
+        if kind == "PERCENTAGE": c["making"] = {"type": kind, "value": rng.randint(0, 3000) / 100}
+        elif kind in ("PER_GRAM",): c["making"] = {"type": kind, "value": rng.randint(0, 200_000)}
+        elif kind in ("FIXED", "PER_PIECE"): c["making"] = {"type": kind, "value": rng.randint(0, 500_000)}
+        wk = rng.choice(["PERCENTAGE", "FIXED_WEIGHT", "NONE", None])
+        net_mg = gross_mg - stone_mg
+        if wk == "PERCENTAGE": c["wastage"] = {"type": wk, "value": rng.randint(0, 1500) / 100}
+        elif wk == "FIXED_WEIGHT": c["wastage"] = {"type": wk, "value": rng.randint(0, net_mg) / 1000}
+        elif wk == "NONE": c["wastage"] = {"type": wk}
+        if rng.random() < 0.6:
+            applies = rng.choice(["TOTAL", "MAKING_CHARGES"])
+            probe = price({**c, "discount": None})
+            base = probe["makingCharges"] if applies == "MAKING_CHARGES" else probe["subtotal"]
+            if rng.random() < 0.5 or base == 0:
+                c["discount"] = {"type": "PERCENTAGE", "value": rng.randint(0, 10000) / 100, "appliesTo": applies}
+            else:
+                c["discount"] = {"type": "FLAT", "value": rng.randint(0, base), "appliesTo": applies}
+        if rng.random() < 0.7:
+            c["cost"] = rng.randint(0, price(c)["subtotal"] * 2 + 1)
+        c["expected"] = price(c)
+        result.append(c)
+    return result
+
+
+if __name__ == "__main__":
+    print("// GENERATED by oracle/oracle.py — an independent Fraction-based calculator. Do not edit by hand.")
+    print("// Every case is one random piece priced with GST 1.5% + 1.5% (intra-state) or 3% (inter-state).")
+    print("export interface OracleCase {")
+    print("  gross: number; stone: number; purity: string; fineness: number; quotedFineness: number; rate: number; pieces: number; stoneValue: number; intra: boolean; cost?: number;")
+    print('  making?: { type: "PERCENTAGE" | "PER_GRAM" | "FIXED" | "PER_PIECE"; value: number };')
+    print('  wastage?: { type: "PERCENTAGE" | "FIXED_WEIGHT"; value: number } | { type: "NONE" };')
+    print('  discount?: { type: "PERCENTAGE" | "FLAT"; value: number; appliesTo: "TOTAL" | "MAKING_CHARGES" };')
+    print("  expected: { net: number; fine: number; metalValue: number; wastageWeight: number; wastageValue: number; makingCharges: number; subtotal: number; discount: number; taxableValue: number; cgst: number; sgst: number; igst: number; totalTax: number; finalAmount: number; grossMargin?: number; marginPercentage?: number | null };")
+    print("}")
+    print()
+    print("export const ORACLE_CASES: OracleCase[] = " + json.dumps(cases(), indent=2) + ";")

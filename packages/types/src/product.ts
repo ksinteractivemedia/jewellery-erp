@@ -1,4 +1,4 @@
-import type { Grams, Id, StoneDetail, Timestamps } from "./common";
+import type { Grams, Id, Paise, StoneDetail, Timestamps } from "./common";
 
 /** A stored image reference. `key` is an opaque storage key, never a URL — URLs are resolved per environment by the API. */
 export interface ProductImage {
@@ -26,6 +26,12 @@ export interface Product extends Timestamps {
   defaultGrossWeight?: Grams;
   defaultNetWeight?: Grams;
   stoneDetails: StoneDetail[];
+  /**
+   * What the design's stones are priced at (integer paise), as merchandising sets it. The stones have no rate of their
+   * own anywhere in the system, so without this a stone-set design cannot be priced honestly — the storefront then shows
+   * "price on request" rather than a number that leaves the stones out.
+   */
+  stoneValue?: Paise;
   /** Ordered; the first image is the primary one. */
   images: ProductImage[];
   /** External video URLs (https). Videos are linked, not uploaded. */

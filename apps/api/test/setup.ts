@@ -13,7 +13,9 @@ process.env.BCRYPT_ROUNDS = "4";
 let replSet: MongoMemoryReplSet;
 
 beforeAll(async () => {
-  replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+  // Cap WiredTiger's cache: by default it is sized from total RAM, and a fresh mongod per test file on a busy
+  // laptop can balloon, swap, and stall a request long enough to time a test out (a hang in a random place).
+  replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 }, instanceOpts: [{ args: ["--wiredTigerCacheSizeGB", "0.25"] }] });
   const uri = replSet.getUri();
   await mongoose.connect(uri, { dbName: "jewellery-erp-test" });
   // Unique indexes are built asynchronously after connect. Without this wait, the first test in a

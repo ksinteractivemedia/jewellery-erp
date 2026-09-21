@@ -43,6 +43,8 @@ const productSchema = new Schema<ProductAttrs>(
     defaultGrossWeight: { type: Number, min: 0 },
     defaultNetWeight: { type: Number, min: 0 },
     stoneDetails: { type: [stoneDetailSchema], default: [] },
+    // Integer paise — what the design's stones are priced at (there is no per-stone rate anywhere else). See Product.stoneValue.
+    stoneValue: { type: Number, min: 0 },
     images: { type: [imageSchema], default: [] },
     videos: { type: [String], default: [] },
     tags: { type: [String], default: [] },

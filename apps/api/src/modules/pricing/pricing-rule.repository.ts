@@ -8,10 +8,11 @@ import {
 import { NotFoundError } from "../../shared/errors";
 import { toDTO, toDTOList } from "../../shared/to-dto";
 import { PricingRuleModel } from "./pricing-rule.model";
-import { assertValidMergedPricingRule } from "./pricing-rule.validation";
+import { assertNoAmbiguousPricingRule, assertValidMergedPricingRule } from "./pricing-rule.validation";
 
 export async function createPricingRule(input: CreatePricingRuleInput): Promise<PricingRule> {
   const parsed = createPricingRuleSchema.parse(input);
+  if (parsed.isActive) assertNoAmbiguousPricingRule({ ...parsed, id: "new" } as PricingRule, await listPricingRules({ isActive: true }));
   const doc = await PricingRuleModel.create(parsed);
   return toDTO<PricingRule>(doc)!;
 }
@@ -27,7 +28,7 @@ export async function requirePricingRuleById(id: string): Promise<PricingRule> {
 }
 
 export async function listPricingRules(
-  filter: { metalId?: string; categoryId?: string; customerGroupId?: string; channel?: string; isActive?: boolean } = {}
+  filter: { metalId?: string; categoryId?: string; customerId?: string; customerGroupId?: string; channel?: string; isActive?: boolean } = {}
 ): Promise<PricingRule[]> {
   return toDTOList<PricingRule>(await PricingRuleModel.find(filter).sort({ priority: -1 }));
 }
@@ -38,6 +39,7 @@ export async function updatePricingRule(id: string, input: UpdatePricingRuleFiel
   const existing = await requirePricingRuleById(id);
   const merged = { ...existing, ...parsed };
   assertValidMergedPricingRule(merged);
+  if (merged.isActive) assertNoAmbiguousPricingRule(merged, await listPricingRules({ isActive: true }));
 
   const doc = await PricingRuleModel.findByIdAndUpdate(id, parsed, { new: true, runValidators: true });
   if (!doc) throw new NotFoundError("PricingRule", id);

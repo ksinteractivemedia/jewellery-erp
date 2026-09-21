@@ -4,6 +4,72 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Storefront design language: warm neutrals, black type, a serif voice for headings, generous space, hairline
+ * rules, square corners. Orange (#FF9900) is a SIGNAL — call-to-action fills, the live-price dot, focus — never a
+ * wash. Text on the orange is black (~10:1); white on it is only ~2:1, so it is not used.
+ */
 html {
   font-family: var(--font-sans);
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+::selection {
+  background: var(--color-primary);
+  color: var(--palette-black);
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-10;
+  }
+  .eyebrow {
+    @apply text-[0.6875rem] font-medium uppercase tracking-[0.2em] text-muted;
+  }
+  .heading-display {
+    @apply font-display font-normal tracking-tight text-foreground;
+  }
+
+  /* Buttons — rectangular, quiet, tall enough to tap. */
+  .btn {
+    @apply inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-sm px-7 text-[0.8125rem] font-medium uppercase tracking-[0.12em] transition-[background-color,color,border-color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply bg-primary text-[var(--palette-black)] hover:bg-primary-hover active:scale-[0.99];
+  }
+  .btn-dark {
+    @apply bg-foreground text-background hover:bg-[var(--palette-charcoal)] active:scale-[0.99];
+  }
+  .btn-outline {
+    @apply border border-foreground bg-transparent text-foreground hover:bg-foreground hover:text-background;
+  }
+  .btn-sm {
+    @apply h-10 px-5 text-[0.75rem];
+  }
+  .link-quiet {
+    @apply underline decoration-border decoration-1 underline-offset-4 transition-colors hover:decoration-foreground;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Subtle, purposeful motion — and none at all for people who ask for less. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise { animation: rise 500ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }

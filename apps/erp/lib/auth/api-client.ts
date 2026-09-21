@@ -33,7 +33,11 @@ export const onSessionLost = (cb: Listener) => {
 
 async function parseError(res: Response): Promise<ApiError> {
   const body = await res.json().catch(() => null);
-  return new ApiError(res.status, body?.error?.code ?? "ERROR", body?.error?.message ?? `Request failed (${res.status})`);
+  const message: string = body?.error?.message ?? `Request failed (${res.status})`;
+  // A 400 from schema validation lists which fields were wrong; "Invalid request" alone tells a person nothing.
+  const issues: { path?: string; message: string }[] = Array.isArray(body?.error?.issues) ? body.error.issues : [];
+  const detail = issues.slice(0, 3).map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; ");
+  return new ApiError(res.status, body?.error?.code ?? "ERROR", detail ? `${message} — ${detail}` : message);
 }
 
 async function rawFetch(path: string, init: RequestInit = {}, withToken = true): Promise<Response> {

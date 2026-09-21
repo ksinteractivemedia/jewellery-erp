@@ -2,7 +2,7 @@ import request from "supertest";
 import type { Express } from "express";
 import { ROLE_NAMES, type RoleName } from "@jewellery/types";
 import type { AppConfig } from "../src/config/app-config";
-import { createApp } from "../src/http/app";
+import { createApp, type AppDeps } from "../src/http/app";
 import { createMemoryStorage } from "../src/modules/media/storage";
 import { InMemoryEmailSender } from "../src/modules/auth/email";
 import { syncRbac } from "../src/modules/auth/rbac/rbac-sync";
@@ -38,16 +38,18 @@ export function testConfig(overrides: { auth?: Partial<AppConfig["auth"]>; rateL
       enabled: false,
       login: { windowMs: 60_000, max: 1000 },
       forgotPassword: { windowMs: 60_000, max: 1000 },
+      storefrontWrite: { windowMs: 60_000, max: 1000 },
       ...overrides.rateLimit,
     },
+    checkout: { reservationMinutes: 20, storeBaseUrl: "http://store.test" },
   };
 }
 
-export function buildTestApp(overrides?: Parameters<typeof testConfig>[0]) {
+export function buildTestApp(overrides?: Parameters<typeof testConfig>[0], extra: { paymentProviders?: AppDeps["paymentProviders"] } = {}) {
   const config = testConfig(overrides);
   const emailSender = new InMemoryEmailSender();
   const mediaStorage = createMemoryStorage();
-  const app: Express = createApp({ config, emailSender, mediaStorage });
+  const app: Express = createApp({ config, emailSender, mediaStorage, ...extra });
   const authService = createAuthService({ config, emailSender });
   return { app, config, emailSender, authService, mediaStorage };
 }

@@ -19,6 +19,14 @@ const STATUS_BY_CODE: Record<string, number> = {
   INVALID_RESET_TOKEN: 400,
   INVALID_CURRENT_PASSWORD: 400,
   RATE_LIMITED: 429,
+  PRICE_CHANGED: 409,
+  STOCK_CHANGED: 409,
+  CHECKOUT_BLOCKED: 409,
+  IDEMPOTENCY_KEY_REUSED: 409,
+  HOLD_EXPIRED: 409,
+  WEBHOOK_REJECTED: 400,
+  PAYMENT_PROVIDER_ERROR: 502,
+  PAYMENTS_NOT_CONFIGURED: 503,
 };
 
 export const notFoundHandler: RequestHandler = (_req, res) => {
@@ -38,7 +46,7 @@ export const errorHandler = (isProduction: boolean): ErrorRequestHandler => (err
   if (err instanceof AppError) {
     const status = STATUS_BY_CODE[err.code] ?? 400;
     // Unknown codes default to 400; 5xx is reserved for genuinely unexpected failures.
-    return res.status(status).json({ error: { code: err.code, message: err.message } });
+    return res.status(status).json({ error: { code: err.code, message: err.message, ...(err.details !== undefined ? { details: err.details } : {}) } });
   }
   if (err?.type === "entity.parse.failed") {
     return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Malformed JSON body" } });

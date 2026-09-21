@@ -4,8 +4,9 @@ import { baseSchemaOptions } from "../../shared/mongoose.helpers";
 
 export type PricingRuleAttrs = Omit<
   PricingRule,
-  "id" | "customerGroupId" | "priceListId" | "metalId" | "categoryId"
+  "id" | "customerId" | "customerGroupId" | "priceListId" | "metalId" | "categoryId"
 > & {
+  customerId?: Types.ObjectId;
   customerGroupId?: Types.ObjectId;
   priceListId?: Types.ObjectId;
   metalId?: Types.ObjectId;
@@ -17,6 +18,7 @@ const discountSchema = new Schema(
   {
     type: { type: String, enum: ["PERCENTAGE", "FLAT"], required: true },
     value: { type: Number, required: true, min: 0 },
+    appliesTo: { type: String, enum: ["TOTAL", "MAKING_CHARGES"] },
   },
   { _id: false }
 );
@@ -26,6 +28,7 @@ const pricingRuleSchema = new Schema<PricingRuleAttrs>(
     name: { type: String, required: true, trim: true },
 
     customerType: { type: String, enum: ["B2C", "B2B"] },
+    customerId: { type: Schema.Types.ObjectId, ref: "Customer" },
     customerGroupId: { type: Schema.Types.ObjectId, ref: "CustomerGroup" },
     priceListId: { type: Schema.Types.ObjectId, ref: "PriceList" },
     metalId: { type: Schema.Types.ObjectId, ref: "Metal" },
@@ -33,10 +36,11 @@ const pricingRuleSchema = new Schema<PricingRuleAttrs>(
     categoryId: { type: Schema.Types.ObjectId, ref: "ProductCategory" },
     channel: { type: String, enum: ["ERP", "B2C", "B2B", "BOTH"], required: true, default: "BOTH" },
 
-    makingChargeType: { type: String, enum: ["PERCENTAGE", "FLAT", "PER_GRAM"] },
+    // Money values (PER_GRAM / FIXED / PER_PIECE) are integer paise; PERCENTAGE is a percent. See pricing-rule.ts in @jewellery/types.
+    makingChargeType: { type: String, enum: ["PERCENTAGE", "PER_GRAM", "FIXED", "PER_PIECE"] },
     makingChargeValue: { type: Number, min: 0 },
 
-    wastageType: { type: String, enum: ["PERCENTAGE", "PER_GRAM"] },
+    wastageType: { type: String, enum: ["PERCENTAGE", "FIXED_WEIGHT", "NONE"] },
     wastageValue: { type: Number, min: 0 },
 
     discount: { type: discountSchema },
@@ -51,6 +55,6 @@ const pricingRuleSchema = new Schema<PricingRuleAttrs>(
 
 // The pricing engine's core lookup: "every active rule whose scope could match this calculation".
 pricingRuleSchema.index({ isActive: 1, channel: 1, validFrom: 1, validTo: 1 });
-pricingRuleSchema.index({ metalId: 1, categoryId: 1, customerGroupId: 1 });
+pricingRuleSchema.index({ metalId: 1, categoryId: 1, customerGroupId: 1, customerId: 1 });
 
 export const PricingRuleModel: Model<PricingRuleAttrs> = model<PricingRuleAttrs>("PricingRule", pricingRuleSchema);

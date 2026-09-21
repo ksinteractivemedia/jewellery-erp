@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createPricingRuleSchema } from "@jewellery/validation";
-import { DomainValidationError } from "../../shared/errors";
-import { assertValidMergedPricingRule, isRuleEffective, resolveApplicableRule } from "./pricing-rule.validation";
+import { ConflictError, DomainValidationError } from "../../shared/errors";
+import { assertNoAmbiguousPricingRule, assertValidMergedPricingRule } from "./pricing-rule.validation";
 import type { PricingRule } from "@jewellery/types";
 
 const BASE = {
@@ -55,7 +55,7 @@ describe("createPricingRuleSchema (shape + cross-field business rules)", () => {
     ).toThrow();
   });
 
-  it("accepts a FLAT discount above 100 (a flat rupee amount, not a percentage)", () => {
+  it("accepts a FLAT discount above 100 (flat paise, not a percentage)", () => {
     expect(() => createPricingRuleSchema.parse({ ...BASE, discount: { type: "FLAT", value: 5000 } })).not.toThrow();
   });
 
@@ -79,56 +79,71 @@ describe("assertValidMergedPricingRule", () => {
   });
 });
 
-describe("isRuleEffective", () => {
-  it("is false before validFrom", () => {
-    const r = rule({ validFrom: new Date("2026-06-01") });
-    expect(isRuleEffective(r, new Date("2026-01-01"))).toBe(false);
+describe("createPricingRuleSchema — making, wastage and discount types", () => {
+  it.each(["PERCENTAGE", "PER_GRAM", "FIXED", "PER_PIECE"] as const)("accepts a %s making charge", (type) => {
+    expect(() => createPricingRuleSchema.parse({ ...BASE, makingChargeType: type, makingChargeValue: 10 })).not.toThrow();
   });
 
-  it("is false after validTo", () => {
-    const r = rule({ validFrom: new Date("2026-01-01"), validTo: new Date("2026-06-01") });
-    expect(isRuleEffective(r, new Date("2026-07-01"))).toBe(false);
+  it("rejects the old FLAT making type — it is FIXED now", () => {
+    expect(() => createPricingRuleSchema.parse({ ...BASE, makingChargeType: "FLAT", makingChargeValue: 10 })).toThrow();
   });
 
-  it("is true within the validity window", () => {
-    const r = rule({ validFrom: new Date("2026-01-01"), validTo: new Date("2026-12-31") });
-    expect(isRuleEffective(r, new Date("2026-06-01"))).toBe(true);
+  it.each(["PER_GRAM", "FIXED", "PER_PIECE"] as const)("rejects a fractional-paise %s making charge", (type) => {
+    expect(() => createPricingRuleSchema.parse({ ...BASE, makingChargeType: type, makingChargeValue: 10.5 })).toThrow();
   });
 
-  it("is false when isActive is false, even within the window", () => {
-    const r = rule({ isActive: false, validFrom: new Date("2026-01-01") });
-    expect(isRuleEffective(r, new Date("2026-06-01"))).toBe(false);
+  it("accepts wastage as a percentage, a fixed weight in grams, or NONE", () => {
+    expect(() => createPricingRuleSchema.parse({ ...BASE, wastageType: "PERCENTAGE", wastageValue: 2.5 })).not.toThrow();
+    expect(() => createPricingRuleSchema.parse({ ...BASE, wastageType: "FIXED_WEIGHT", wastageValue: 0.15 })).not.toThrow();
+    expect(() => createPricingRuleSchema.parse({ ...BASE, wastageType: "NONE" })).not.toThrow();
   });
 
-  it("has no upper bound when validTo is unset", () => {
-    const r = rule({ validFrom: new Date("2026-01-01"), validTo: undefined });
-    expect(isRuleEffective(r, new Date("2099-01-01"))).toBe(true);
+  it("accepts a rule whose only job is to switch wastage off", () => {
+    const { makingChargeType, makingChargeValue, ...rest } = BASE;
+    expect(() => createPricingRuleSchema.parse({ ...rest, customerId: "0000000000000000000000f1", wastageType: "NONE" })).not.toThrow();
+  });
+
+  it("rejects wastage NONE with a value, and a wastage type other than NONE without one", () => {
+    expect(() => createPricingRuleSchema.parse({ ...BASE, wastageType: "NONE", wastageValue: 2 })).toThrow();
+    expect(() => createPricingRuleSchema.parse({ ...BASE, wastageType: "PERCENTAGE" })).toThrow();
+  });
+
+  it("rejects a wastage weight finer than a milligram, and the old PER_GRAM wastage type", () => {
+    expect(() => createPricingRuleSchema.parse({ ...BASE, wastageType: "FIXED_WEIGHT", wastageValue: 0.1234 })).toThrow();
+    expect(() => createPricingRuleSchema.parse({ ...BASE, wastageType: "PER_GRAM", wastageValue: 1 })).toThrow();
+  });
+
+  it("accepts a discount that applies to the making charges only", () => {
+    expect(() => createPricingRuleSchema.parse({ ...BASE, discount: { type: "PERCENTAGE", value: 50, appliesTo: "MAKING_CHARGES" } })).not.toThrow();
+    expect(() => createPricingRuleSchema.parse({ ...BASE, discount: { type: "PERCENTAGE", value: 50, appliesTo: "STONES" } })).toThrow();
+  });
+
+  it("accepts a customer-specific rule", () => {
+    expect(() => createPricingRuleSchema.parse({ ...BASE, customerId: "0000000000000000000000f1" })).not.toThrow();
+    expect(() => createPricingRuleSchema.parse({ ...BASE, customerId: "not-an-id" })).toThrow();
   });
 });
 
-describe("resolveApplicableRule", () => {
-  const asOf = new Date("2026-06-01");
-
-  it("returns undefined when no rule is effective", () => {
-    const r = rule({ validFrom: new Date("2027-01-01") });
-    expect(resolveApplicableRule([r], asOf)).toBeUndefined();
+describe("assertNoAmbiguousPricingRule", () => {
+  it("passes when nothing else could apply equally", () => {
+    expect(() => assertNoAmbiguousPricingRule(rule({ id: "2", priority: 5 }), [rule({ id: "1", priority: 0 })])).not.toThrow();
   });
 
-  it("picks the highest-priority effective rule", () => {
-    const low = rule({ id: "1", priority: 1 });
-    const high = rule({ id: "2", priority: 10 });
-    expect(resolveApplicableRule([low, high], asOf)?.id).toBe("2");
+  it("refuses a rule that ties with a stored one, naming the rival", () => {
+    expect(() => assertNoAmbiguousPricingRule(rule({ id: "2", name: "New rule" }), [rule({ id: "1", name: "Existing rule" })])).toThrow(ConflictError);
+    expect(() => assertNoAmbiguousPricingRule(rule({ id: "2" }), [rule({ id: "1", name: "Existing rule" })])).toThrow(/Existing rule/);
   });
 
-  it("breaks a priority tie by specificity (more scoping fields wins)", () => {
-    const general = rule({ id: "1", priority: 5 });
-    const specific = rule({ id: "2", priority: 5, metalId: "m1", categoryId: "c1", customerGroupId: "g1" });
-    expect(resolveApplicableRule([general, specific], asOf)?.id).toBe("2");
+  it("ignores a stored rule that is out of the way (different metal)", () => {
+    expect(() => assertNoAmbiguousPricingRule(rule({ id: "2", metalId: "m1" }), [rule({ id: "1", metalId: "m2" })])).not.toThrow();
   });
 
-  it("ignores an inactive or out-of-window rule even if it has higher priority", () => {
-    const active = rule({ id: "1", priority: 1 });
-    const inactiveButHigherPriority = rule({ id: "2", priority: 99, isActive: false });
-    expect(resolveApplicableRule([active, inactiveButHigherPriority], asOf)?.id).toBe("1");
+  it("does not compare a rule with itself when it is being updated", () => {
+    const stored = rule({ id: "1" });
+    expect(() => assertNoAmbiguousPricingRule(stored, [stored])).not.toThrow();
+  });
+
+  it("does not blame the candidate for two OTHER rules that already clash", () => {
+    expect(() => assertNoAmbiguousPricingRule(rule({ id: "3", priority: 9 }), [rule({ id: "1" }), rule({ id: "2" })])).not.toThrow();
   });
 });

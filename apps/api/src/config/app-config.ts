@@ -34,7 +34,13 @@ export interface AppConfig {
     /** Absolute base URL browsers use to reach this API — media URLs are built from it. */
     publicBaseUrl: string;
   };
-  rateLimit: { enabled: boolean; login: RateLimitRule; forgotPassword: RateLimitRule };
+  rateLimit: { enabled: boolean; login: RateLimitRule; forgotPassword: RateLimitRule; storefrontWrite: RateLimitRule };
+  checkout: {
+    /** How long a customer's pieces are held while they pay. */
+    reservationMinutes: number;
+    /** Where the storefront lives — payment pages send customers back here (never taken from a request). */
+    storeBaseUrl: string;
+  };
 }
 
 const bool = z.enum(["true", "false"]).transform((v) => v === "true");
@@ -58,6 +64,8 @@ const envSchema = z.object({
   RATE_LIMIT_ENABLED: bool.default("true"),
   MEDIA_DIR: z.string().default("./.data/media"),
   API_PUBLIC_URL: z.string().url().optional(),
+  CHECKOUT_RESERVATION_MINUTES: z.coerce.number().int().min(5).max(120).default(20),
+  STORE_BASE_URL: z.string().url().default("http://localhost:3001"),
 });
 
 /** Parses and validates the environment once at boot — a bad/missing secret fails fast instead of at first login. */
@@ -89,6 +97,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       enabled: e.RATE_LIMIT_ENABLED,
       login: { windowMs: 15 * 60_000, max: 20 },
       forgotPassword: { windowMs: 60 * 60_000, max: 5 },
+      // Public, unauthenticated endpoints that write (newsletter) or do real work (cart quotes).
+      storefrontWrite: { windowMs: 60_000, max: 30 },
     },
+    checkout: { reservationMinutes: e.CHECKOUT_RESERVATION_MINUTES, storeBaseUrl: e.STORE_BASE_URL.replace(/\/$/, "") },
   };
 }

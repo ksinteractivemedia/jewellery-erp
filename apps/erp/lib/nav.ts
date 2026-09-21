@@ -5,6 +5,7 @@ import {
   BarChart3,
   BookOpen,
   Boxes,
+  Calculator,
   ClipboardList,
   FolderTree,
   Coins,
@@ -53,7 +54,7 @@ export interface NavGroup {
  */
 export const NAV: NavGroup[] = [
   {
-    items: [{ label: "Dashboard", href: "/", icon: LayoutDashboard }],
+    items: [{ label: "Dashboard", href: "/", icon: LayoutDashboard, ownsHeader: true }],
   },
   {
     label: "Sales",
@@ -101,6 +102,10 @@ export const NAV: NavGroup[] = [
       { label: "Job Work", href: "/production/job-work", icon: Hammer, permission: P.PRODUCTION_VIEW },
       { label: "Quality Control", href: "/production/quality-control", icon: BadgeCheck, permission: P.PRODUCTION_VIEW },
     ],
+  },
+  {
+    label: "Pricing",
+    items: [{ label: "Pricing Playground", href: "/pricing/playground", icon: Calculator, permission: P.PRICING_MANAGE, ownsHeader: true }],
   },
   {
     label: "Metals",

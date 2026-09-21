@@ -16,7 +16,10 @@ const auth = () => bearer(manager);
 const api = (method: "get" | "post" | "put" | "patch" | "delete", url: string, token = manager) => request(t.app)[method](url).set(bearer(token));
 
 async function tokenFor(role: (typeof R)[keyof typeof R] | null) {
-  return (await loginAs(t.app, (await createStaff(role)).email)).accessToken;
+  const staff = await createStaff(role);
+  const login = await loginAs(t.app, staff.email);
+  if (!login.accessToken) console.log("LOGINFAIL", role, staff.email, login.res.status, JSON.stringify(login.res.body));
+  return login.accessToken;
 }
 
 async function mkProduct(over: Record<string, unknown> = {}) {

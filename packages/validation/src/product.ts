@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { zGrams, zId, zStoneDetail } from "./common";
+import { zGrams, zId, zPaise, zStoneDetail } from "./common";
 import {
   MAX_PRODUCT_IMAGES,
   MAX_PRODUCT_VIDEOS,
@@ -29,6 +29,8 @@ const productFields = z.object({
   defaultGrossWeight: zGrams.optional(),
   defaultNetWeight: zGrams.optional(),
   stoneDetails: z.array(zStoneDetail).default([]),
+  /** Integer paise — what the design's stones are priced at. Without it a stone-set design is "price on request" on the storefront. */
+  stoneValue: zPaise.max(1_000_000_000_000).optional(),
   images: z.array(zProductImage).max(MAX_PRODUCT_IMAGES).default([]),
   videos: z.array(zVideoUrl).max(MAX_PRODUCT_VIDEOS).default([]),
   tags: zTags.default([]),
@@ -53,6 +55,7 @@ export const updateProductSchema = productFields
     purity: zPurity.nullable().optional(),
     defaultGrossWeight: zGrams.nullable().optional(),
     defaultNetWeight: zGrams.nullable().optional(),
+    stoneValue: zPaise.max(1_000_000_000_000).nullable().optional(),
   })
   .refine(
     (v) => netNotAboveGross({ defaultGrossWeight: v.defaultGrossWeight ?? undefined, defaultNetWeight: v.defaultNetWeight ?? undefined }),

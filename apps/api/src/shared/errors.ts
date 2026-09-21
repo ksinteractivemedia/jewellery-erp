@@ -2,7 +2,9 @@
 export class AppError extends Error {
   constructor(
     message: string,
-    public readonly code: string
+    public readonly code: string,
+    /** Extra, client-safe facts to return with the error (e.g. the fresh prices after PRICE_CHANGED). */
+    public readonly details?: unknown
   ) {
     super(message);
     this.name = new.target.name;

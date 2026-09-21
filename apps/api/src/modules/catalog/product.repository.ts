@@ -34,10 +34,10 @@ export async function listProducts(
 
 /** `null` in the input clears an optional field; `undefined` leaves it alone. */
 export async function updateProduct(id: string, input: UpdateProductInput, actorId?: string): Promise<Product> {
-  const { description, categoryId, purity, defaultGrossWeight, defaultNetWeight, ...rest } = updateProductSchema.parse(input);
+  const { description, categoryId, purity, defaultGrossWeight, defaultNetWeight, stoneValue, ...rest } = updateProductSchema.parse(input);
   const set: Record<string, unknown> = { ...rest, ...(actorId ? { updatedBy: actorId } : {}) };
   const unset: Record<string, 1> = {};
-  for (const [key, value] of Object.entries({ description, categoryId, purity, defaultGrossWeight, defaultNetWeight })) {
+  for (const [key, value] of Object.entries({ description, categoryId, purity, defaultGrossWeight, defaultNetWeight, stoneValue })) {
     if (value === null) unset[key] = 1;
     else if (value !== undefined) set[key] = value;
   }

@@ -1,49 +1,48 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { RefreshCw, ShieldCheck, Truck } from "lucide-react";
-import { CollectionHero, TrustBadge } from "@jewellery/ui";
-import { FeaturedProducts } from "../components/featured-products";
-import { COLLECTIONS, FEATURED_PRODUCTS } from "../lib/placeholder-data";
+import type { StoreHome } from "@jewellery/types";
+import { CollectionTiles, CategoryNav } from "../components/home/tiles";
+import { Hero } from "../components/home/hero";
+import { Newsletter } from "../components/home/newsletter";
+import { ProductRail } from "../components/home/product-rail";
+import { Story } from "../components/home/story";
+import { TrustStrip } from "../components/home/trust-strip";
+import { ReviewsSection } from "../components/product/reviews";
+import { Section, SectionHeading } from "../components/ui/section";
+import { storeGet } from "../lib/api";
 
-export default function HomePage() {
+// Live prices: rendered per request, never frozen at build time.
+export const dynamic = "force-dynamic";
+export const metadata: Metadata = { alternates: { canonical: "/" } };
+
+export default async function HomePage() {
+  const home = await storeGet<StoreHome>("/home");
+  const { content } = home;
+  const heroImage = home.featured[0]?.image ?? home.newArrivals[0]?.image;
+  const storyImage = home.categories.find((c) => c.image)?.image ?? home.newArrivals[1]?.image;
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-16 px-4 py-10 sm:px-6">
-      <CollectionHero
-        eyebrow="New Collection"
-        title="Festive gold, made to be worn every day"
-        description="Hallmarked 22K and 18K pieces, priced live against today's gold rate."
-        image="https://picsum.photos/seed/hero-jewellery/1400/800"
-        ctaLabel="Shop the collection"
-      />
+    <>
+      {content.hero && <Hero hero={content.hero} image={heroImage} />}
 
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {COLLECTIONS.map((c) => (
-          <Link key={c.href} href={c.href} className="group relative aspect-[4/5] overflow-hidden rounded-lg">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={c.image} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 flex flex-col gap-0.5 p-5">
-              <span className="font-display text-h3 text-white">{c.title}</span>
-              <span className="text-body-sm text-white/85">{c.description}</span>
-            </div>
-          </Link>
-        ))}
-      </section>
+      {home.categories.length > 0 && (
+        <Section label="Shop by category" className="pb-6 sm:pb-8">
+          <div className="flex flex-col gap-10"><SectionHeading eyebrow="Shop by category" title="Find your piece" href="/collections" linkLabel="All collections" /><CategoryNav categories={home.categories} /></div>
+        </Section>
+      )}
 
-      <section className="flex flex-col gap-6">
-        <div className="flex items-end justify-between">
-          <h2 className="font-display text-h2">Bestsellers</h2>
-          <Link href="/collections/new-arrivals" className="text-body-sm text-primary hover:underline">
-            View all
-          </Link>
-        </div>
-        <FeaturedProducts products={FEATURED_PRODUCTS} />
-      </section>
+      {home.collections.length > 0 && (
+        <Section label="Featured collections">
+          <div className="flex flex-col gap-10"><SectionHeading eyebrow="Collections" title="Curated for you" href="/collections" /><CollectionTiles collections={home.collections} /></div>
+        </Section>
+      )}
 
-      <section className="grid grid-cols-1 gap-6 border-y border-border-subtle py-10 sm:grid-cols-3">
-        <TrustBadge icon={ShieldCheck} label="BIS Hallmarked, always" />
-        <TrustBadge icon={Truck} label="Free insured shipping" />
-        <TrustBadge icon={RefreshCw} label="15-day easy returns" />
-      </section>
-    </div>
+      <ProductRail eyebrow="Featured" title="Hand-picked pieces" products={home.featured} tone="sunken" testId="featured-products" />
+      <ProductRail eyebrow="Just in" title="New arrivals" href="/search?sort=newest" linkLabel="See all new" products={home.newArrivals} testId="new-arrivals" />
+      {content.story && <Story story={content.story} image={storyImage} />}
+      <ProductRail eyebrow="Most loved" title="Bestsellers" description="The pieces our customers have actually bought most." href="/search?sort=bestselling" linkLabel="See all" products={home.bestsellers} testId="bestsellers" />
+      <TrustStrip trust={content.trust} />
+      <Section label="Reviews"><ReviewsSection heading="What customers say" compact /></Section>
+      <Newsletter brand={content.brandName} />
+    </>
   );
 }

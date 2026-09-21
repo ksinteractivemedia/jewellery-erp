@@ -86,19 +86,78 @@ This is the rule the whole system is built around (see business-rules.md for the
 
 A `Product`'s price can change every day with the gold rate. An `Invoice`'s price must never change retroactively. This is why every commercial document line (`OrderLine`, `InvoiceLine`) embeds a `PriceSnapshot` rather than a reference to live pricing.
 
-## 5. Pricing engine
+## 5. Pricing engine — **implemented** (Phase 2)
 
-`packages/pricing-engine` is a pure, framework-free TypeScript package:
+`packages/pricing-engine` is a pure, framework-free TypeScript package. Its only dependency is *types* from `@jewellery/types`; a test (`independence.test.ts`) fails the build if a source file imports a framework or database, reads a clock, or draws a random number. Everything a price depends on is an input — including the date rules are evaluated `asOf` — so the same input always yields the same breakdown to the paisa, with no database.
+
+Public surface (`src/index.ts`):
+
+| Function | Job |
+|---|---|
+| `calculatePrice(input)` | Pure arithmetic once rules are chosen. Returns the **complete** breakdown (below), never just a total. |
+| `resolvePricingRules(rules, ctx)` | Picks the rule governing each of *making / wastage / discount*, by a **total order** (below), with a trace of what it beat. |
+| `priceItem(request)` | `resolvePricingRules` + `calculatePrice`; accepts hand-entered `overrides`. The one call every channel makes. |
+| `resolveTaxRule(rules, {hsnCode, asOf})` | The effective `TaxRule` for an HSN code on a date; refuses to guess between rules starting on the same instant. |
+| `findAmbiguousRules(rules)` | Save-time guard: pairs of rules that could apply to one sale and tie on everything but id. `apps/api` refuses to save such a rule. |
+| `valueOfMetal(...)` | The one metal-value formula; stock valuation (`inventory/valuation.ts`) calls it too, so a valuation and a price can't disagree about a gram of metal. |
 
 ```
-input:  { product, inventoryItem, metalRate, purity, pricingRules[], customerGroup?, quantity }
-output: { metalValue, makingCharge, wastage, stoneValue, subtotal, discount, taxBreakdown, total, ruleTrace }
+input:  metal, purity(+fineness), gross/stone/net/fine weight, pieces, metal rate quote, stone value, cost?,
+        making / wastage / discount terms (or, for priceItem: candidate rules + customer context), tax terms, seller & buyer state
+output: metalValue, wastageWeight, wastageValue, makingCharges, stoneValue, subtotal, discount, taxableValue,
+        taxes{ supplyType, cgst, sgst, igst, rates }, totalTax, finalAmount, estimatedCost, grossMargin, marginPercentage,
+        rules{ making, wastage, discount → terms + source }, warnings[]
 ```
 
-- Same function is called by ERP (manual sale / quote), B2C (checkout), and B2B (order from PO / negotiated price).
-- No channel-specific branching lives in the engine's public API — channel differences (e.g. B2B negotiated price list, B2C dynamic promo) are expressed as **inputs** (which `PricingRule`s apply), not as separate code paths.
-- Deterministic and side-effect free → easy to unit test exhaustively and to snapshot-test against known-good calculations (critical given this is money).
-- `apps/api` is the only caller that persists a `PriceSnapshot`; frontends may call a `/pricing/preview` API endpoint for live display, but never compute price locally.
+- **Contract types live in `@jewellery/types`** (`pricing.ts`, `pricing-rule.ts`, `tax-rule.ts`), not in the engine, so the ERP types what the API returns without depending on the engine. The frontends *cannot* compute a price — they don't have the code.
+- **Exact arithmetic.** Money is integer paise, weight integer milligrams, percentages/fineness integers scaled by 10⁶; every product/quotient is BigInt, rounded **once**, half away from zero. No float ever touches a paisa, so `subtotal = metal + wastage + making + stones`, `taxable = subtotal − discount`, `totalTax = cgst + sgst + igst`, `final = taxable + totalTax` hold exactly, always.
+- **Rule resolution order (deterministic, total):** *tier* — customer-specific → customer group → price list → category → default — then higher `priority` (only inside a tier), then more specific scope, then later `validFrom`, then lowest id. The last step is arbitrary, so it is reported as a warning and `findAmbiguousRules` stops such rules being saved. Each of making / wastage / discount resolves **independently** (a customer's "5% off" rule must not erase the default making charge), and a wastage of `NONE` is a real choice that overrides a default. A test proves the answer is identical for all 120 orderings of a book and 200 shuffles of a larger one.
+- **Refuses rather than guesses:** weights that disagree, stone ≥ gross, a rate for another metal, wastage above net weight, a flat discount above what it discounts, an unknown tax state — each a `PricingError` with a field name; the API returns it as a 400.
+- Channel differences are **inputs** (`context`, `rules`), never code paths.
+- **Callers today:** `apps/api` `POST /api/pricing/preview` (`pricing.manage`) for the internal playground, which reads stored rules and metal master data and writes nothing. **Phase 3.5 now persists a `PriceSnapshot` per order line and prices real B2C orders (§5C);** the rest arrives with the Orders module. When it does, `apps/api` remains the only caller that persists a snapshot; margin and cost fields must be stripped for any caller without cost visibility.
+
+## 5A. ERP dashboard — **implemented** (Phase 2.5)
+
+The dashboard is a composition of independent sections, each with its own API endpoint under `/api/dashboard/*` (`sales`, `b2b`, `inventory`, `operations`, `alerts`, `activity`, plus `meta` for the filter bar). One endpoint per section means a section loads, fails, is permissioned and is retried on its own — one slow query never blanks the page. The ERP composes them and computes none of the figures.
+
+**Honest provenance is part of the contract** (`packages/types/src/dashboard.ts`). Every section answers one of:
+- `OK` + `LIVE` — computed now from the database (inventory, operations, alerts, activity);
+- `OK` + `SAMPLE` — supplied by a development adapter; the UI labels it;
+- `NOT_CONNECTED` — the owning module does not exist yet (Orders, invoicing, B2B, credit). A 200, not an error, and never a zero.
+
+**Providers.** Sales and B2B have no backend yet, so the dashboard module defines what it needs (`SalesProvider`, `B2BProvider`, in `apps/api/src/modules/dashboard/providers.ts`) and registers none in production. When the Orders module ships it supplies a provider that turns orders into normalised facts (`SalesFact`, `B2BFacts`); the figures — totals, previous-period comparison, trend buckets, B2B/B2C split, rankings, receivables, overdue, credit utilisation — are computed by **real, tested aggregators** (`aggregateSales`, `aggregateB2B`) that live in `src/`, not in the adapter.
+
+**The development adapter** (`apps/api/dev-adapters/dashboard-sample.ts`, wired only from `scripts/dev-memory.ts`) fakes only the *facts*, through arithmetic patterns rather than a random source, and feeds the same aggregators — so filters, comparisons and edge cases exercised in development are the real ones. Two tests enforce the isolation structurally: nothing under `src/` may import seed data or the adapter, and nothing that could show a number may draw one at random; the ERP side has a matching guard (no `Math.random`, no rupee literal, no cost/revenue arithmetic in dashboard components). The ERP never knows the adapter exists — it sees one contract and a `provenance` flag.
+
+**Filters.** A date range (`from`/`to`, inclusive *business days*) and a branch/location. The server resolves them: a location wins over its branch, a location outside the named branch is a 400, an unknown one a 404. A section states which filters it *honours* (`scope.honours`) and what it covered (`scope.range`, or none for a snapshot), so stock, queues and alerts — snapshots of now — visibly ignore the date range, and B2B, which is not location-scoped, receives the branch a location belongs to. All filters live in the URL (`range`, `from`, `to`, `branch`, `location`); the ERP takes "today" from `meta.today`, the server's business day, never the browser's clock. Business days are IST (a fixed UTC+5:30, no daylight saving) — `BUSINESS_UTC_OFFSET_MINUTES`; a per-company timezone is a known gap.
+
+**Authorization** is per section and server-side: stock sections need `inventory.view`, sales `sales.view`, B2B `b2b.view`, and gross margin — cost-derived — is withheld by the service from anyone without `accounting.view` (`{ restricted: true }`; the figures are not in the response at all). The page shows a person exactly the sections they may see.
+
+## 5B. B2C storefront — **implemented** (Phase 3)
+
+`apps/b2c-store` (Next.js App Router, port 3001) talks only to the public `/api/store/*` API (`apps/api/src/modules/storefront`); a Next `rewrite` proxies it same-origin, so the browser never needs the API's origin. It contains **no pricing, tax, stock or credit logic** — components render what the API says.
+
+- **One pricing engine, dynamic by contract.** `storefront-pricing.ts` loads the metal rates, active pricing rules and the effective-dated `TaxRule` and calls `priceItem` with the B2C context. The result is a `StorePrice`: `AVAILABLE` (always `dynamic: true`, with breakdown, basis and computed-at) or `ON_REQUEST` with a machine-readable reason. A price is calculated per request and never stored or cached in the storefront; the bag stores slugs and quantities only, and totals come from `POST /cart/quote`.
+- **Availability** is derived from the same ledger-backed `InventoryItem` rows the ERP uses (available, finished jewellery, unreserved); for designs sold by size it is the sum over sizes.
+- **Content is data** (`StorefrontContent`): announcement, hero, story, trust points, policies, contact and curation come from the business, are validated by `storefrontContentSchema`, and are absent (not defaulted) when unwritten. Reviews are an endpoint that reports "none" — nothing is invented.
+- **Rendering.** Server Components fetch (`no-store` for prices and lists; a 30 s revalidate only for the shell content/navigation) and hand the result to Client Components as TanStack Query `initialData`, which then refetch on focus so a displayed price does not go stale. Listing state is the URL (`parseListingParams` / `toApiQuery` / `toSearchString`), so a filtered view is shareable and crawlable.
+- **SEO.** `generateMetadata` per route, canonical without filters, `Product` JSON-LD with `offers` only when the price is available (and no `aggregateRating`), `sitemap.xml` from `/api/store/sitemap`, `robots.txt`, noindex on transactional pages. There is intentionally **no root `loading.tsx`**: a Suspense boundary above the page flushes a 200 before `notFound()` can set 404.
+- **Rate limiting:** storefront writes (`/cart/quote`, `/newsletter`) share the `storefrontWrite` limiter; reads are `public, max-age=15`.
+
+## 5C. Checkout, orders & payments — **implemented** (Phase 3.5)
+
+`apps/api/src/modules/orders`, behind the public `/api/store` API. Guest checkout is the supported path (the identity model can carry B2C customers, but no B2C sign-in exists yet); a valid B2C bearer token, if present, links the order to the user.
+
+- **Trust boundary.** The browser sends *which pieces, how many, where, how* — nothing else. Request schemas are strict. `verify` and `place` both call one `assess()` that prices with the same pricing engine (`priceDesignWithEvidence`), counts real stock, and applies the business's delivery fee. `agreedTotal` is compared, never used.
+- **Order = DRAFT → (hold) → PENDING_PAYMENT.** The draft and its `PriceSnapshot`s are written in one transaction; the ledger `RESERVATION` and the move to PENDING_PAYMENT are one transaction (`withInventoryTransaction` + `postInSession`), so a hold exists exactly when the order is payable. Lost races retry piece selection, then cancel the draft and answer `STOCK_CHANGED`.
+- **Snapshots.** Each line points at an append-only `PriceSnapshot` holding the engine's inputs and full output for one unit; the order copies the resulting amounts. The order is immutable (guarded in the model) apart from status, hold, allocations and payment fields, so a later rate change cannot alter it.
+- **State machine.** `ORDER_TRANSITIONS` in `order-status.ts`; `moveOrder` is a compare-and-set on the status read, so racing movers (webhook, return, sweep, customer) yield one winner. Payment states move only forward (`canAdvancePayment`).
+- **Payments.** `PaymentProvider` is the only thing orders know. Every provider report — webhook, customer return (`fetchStatus`), expiry reconcile — goes through `apply()`. Webhook: signature verified by the adapter → recorded in `PaymentEvent` (unique per provider event) → applied → marked processed; a redelivery is acknowledged and ignored; an event for a payment not yet known is answered 409 so the provider resends. `PaymentProviders` is a registry; production registers none.
+- **Capture** runs as one transaction: payment CAPTURED + order PAID→CONFIRMED + ledger `SALE` for the held pieces. If it can't be honoured, `settleCapture` records the capture and refunds (reasons: `STOCK_UNAVAILABLE`, `ORDER_NOT_PAYABLE`, `DUPLICATE_PAYMENT`, `AMOUNT_MISMATCH`). Refunds reserve their amount against the payment *before* the provider is called (guard over pending+succeeded), so racing refunds can't return more than was taken.
+- **Cancellation.** Unpaid: CANCELLED, open payments voided, pieces released. Paid (PAID/CONFIRMED): CANCELLED, pieces `RETURN`ed (inspection queue), full refund; REFUNDED once the refund lands (asynchronously if the provider says so). `expireStale` cancels lapsed holds after asking the provider about open payments.
+- **Guest access.** `HMAC(accessSecret, "order-access:v1:"+orderId)` as `X-Order-Token`; nothing stored.
+- **Config:** `CHECKOUT_RESERVATION_MINUTES` (default 20), `STORE_BASE_URL` (payment pages return here; the browser supplies only a path). Delivery options and the HSN are `StorefrontContent` data.
+- **Dev/test:** `dev-adapters/payment-sandbox.ts` — a gateway that behaves like a real one (own authoritative state, signed webhooks, ids, async refunds) plus a hosted payment page. Not importable from `src/`.
 
 ## 6. Inventory ledger and concurrency — **implemented** (Phase 1.7)
 
@@ -172,7 +231,7 @@ One identity model (`User`/`Role`/`Permission`) serves ERP staff, B2B buyers and
 1. **MongoDB transactions require a replica set.** Must be true in every environment including local dev, or the ledger-consistency guarantees silently disappear. Mitigate: document this in setup, use a single-node replica set locally, verify in CI.
 2. **Reservation race conditions.** Two customers checking out the same one-of-a-kind piece concurrently. Mitigated by atomic guarded updates (see §6), but must be load-tested before launch.
 3. **Ledger read performance at scale.** Deriving "current state" by replaying the ledger doesn't scale; the derived cache field is essential and must never drift from the ledger. Add a periodic reconciliation job that recomputes cached state from the ledger and alerts on mismatch.
-4. **Pricing engine drift.** If any frontend or module ever computes a price outside `packages/pricing-engine`, B2C/B2B/ERP will silently disagree. Mitigate with lint rule / code review discipline + the engine being the only place with metal-rate math; treat any duplicate price math found in review as a bug, not a style issue.
+4. **Pricing engine drift.** (Mitigated: one engine, frontends hold no price code, stock valuation reuses its formula, and `independence.test.ts` guards its purity.) If any frontend or module ever computes a price outside `packages/pricing-engine`, B2C/B2B/ERP will silently disagree. Mitigate with lint rule / code review discipline + the engine being the only place with metal-rate math; treat any duplicate price math found in review as a bug, not a style issue.
 5. **Job-work / manufacturing reconciliation correctness.** Issued vs. returned vs. finished vs. wastage vs. discrepancy is easy to get subtly wrong and hard to unit-test end-to-end. Needs its own dedicated test suite (see test-plan.md) before it's trusted for real material.
 6. **Compliance rules change over time** (GST rates, HUID thresholds). Hardcoding any of this creates a migration/backfill headache later — must be versioned/effective-dated configuration from day one, not deferred as "config later."
 7. **Schema evolution on financial data.** Once real invoices/ledger entries exist, Mongoose schema changes must be additive/backward-compatible; no destructive migrations on financial collections.
