@@ -16,6 +16,7 @@ const priceSnapshotSchema = new Schema<PriceSnapshotAttrs>(
     orderId: { type: Schema.Types.ObjectId, ref: "Order", required: true, index: true },
     productId: { type: Schema.Types.ObjectId, ref: "Product", required: true },
     variantId: { type: Schema.Types.ObjectId, ref: "ProductVariant" },
+    documentType: { type: String, enum: ["ORDER", "B2B_QUOTATION", "B2B_SALES_ORDER"], default: "ORDER" },
     sku: { type: String, required: true },
     computedAt: { type: Date, required: true },
     inputs: { type: Schema.Types.Mixed, required: true },

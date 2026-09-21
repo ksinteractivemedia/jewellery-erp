@@ -36,6 +36,8 @@ const productFields = z.object({
   tags: zTags.default([]),
   b2cEnabled: z.boolean().default(false),
   b2bEnabled: z.boolean().default(false),
+  b2bMinOrderQuantity: z.number().int().min(1).max(100_000).optional(),
+  b2bPriceOnRequest: z.boolean().optional(),
   isActive: z.boolean().default(true),
 });
 

@@ -9,6 +9,8 @@ import { seedPricingRules } from "../seed/pricing.seed";
 import { seedStorefront } from "../seed/storefront.seed";
 import { createSampleDashboardProviders } from "../dev-adapters/dashboard-sample";
 import { createSandboxProvider, startSandboxPaymentPage } from "../dev-adapters/payment-sandbox";
+import { seedB2B } from "../seed/b2b.seed";
+import type { B2BModule } from "../src/modules/b2b";
 import { startOrderExpirySweep, type OrdersModule } from "../src/modules/orders";
 import { createMediaService } from "../src/modules/media/media.service";
 import { createMemoryStorage } from "../src/modules/media/storage";
@@ -40,7 +42,7 @@ for (const name of ALL_ROLE_NAMES) {
 const config = loadConfig({
   NODE_ENV: "development",
   JWT_ACCESS_SECRET: "dev-only-secret-dev-only-secret-dev-only!!",
-  ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:3001",
+  ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:3001,http://localhost:3002",
   BCRYPT_ROUNDS: "4",
   RATE_LIMIT_ENABLED: "false",
   PORT: process.env.PORT ?? "4000",
@@ -76,6 +78,11 @@ console.log(`[dev-memory] payments: SANDBOX gateway (hosted page on :${SANDBOX_P
 
 const app = createApp({ config, emailSender: new ConsoleEmailSender(), mediaStorage, dashboardProviders, paymentProviders: [sandbox] });
 startOrderExpirySweep((app.locals.orders as OrdersModule).orders, 15_000);
+
+// Wholesale: two accounts with buyer logins and documents in every stage, made through the real services.
+const staffActor = (role: string, name: string) => ({ id: demoUserIds.get(role)!, name, email: `${role.toLowerCase().replace(/_/g, ".")}@demo.test`, kind: "SELLER" as const });
+const b2bSeeded = await seedB2B({ b2b: app.locals.b2b as B2BModule, password: PASSWORD, staff: { salesManager: staffActor("SALES_MANAGER", "SALES MANAGER"), b2bManager: staffActor("B2B_MANAGER", "B2B MANAGER"), accountant: staffActor("ACCOUNTANT", "ACCOUNTANT"), admin: staffActor("ADMIN", "ADMIN") } });
+console.log(`[dev-memory] seeded wholesale: ${b2bSeeded.customers} accounts — portal logins (password "${PASSWORD}"): ${b2bSeeded.buyers.join(", ")}`);
 app.listen(config.port, () => {
   console.log(`[dev-memory] API on :${config.port} — demo users (password "${PASSWORD}"):`);
   for (const name of ALL_ROLE_NAMES) console.log(`  ${name.toLowerCase().replace(/_/g, ".")}@demo.test  (${name})`);

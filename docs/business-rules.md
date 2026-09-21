@@ -93,9 +93,9 @@ These are the rules the system must enforce regardless of which channel (ERP/B2C
 
 ## 4. B2B credit & pricing
 
-4.1. **Every B2B `Customer` has a `CreditAccount`**: credit limit, payment terms (e.g. net 30), current outstanding, overdue amount, computed available credit (`limit − outstanding`).
+4.1. **Every B2B `Customer` carries its account terms** (`Customer.b2b`): credit limit, payment terms, price list, salesperson, territory, credit hold. **Available credit = limit − outstanding − committed**, where *committed* is approved orders not yet invoiced (otherwise several orders approved before any is invoiced would each look fine alone). *(Implemented Phase 4.)*
 
-4.2. **An order that would push outstanding beyond the credit limit is blocked pending approval**, not silently allowed. Approval workflow and threshold are configurable per customer/customer group, not hardcoded.
+4.2. **An order that would push exposure beyond the credit limit is blocked pending approval** — created as PENDING_CREDIT_APPROVAL, with no stock allocated and no invoice — as is one for an account on credit hold, or (if the account is set to) one with overdue invoices. Approval is a separate permission (`b2b.override_credit`), needs a reason, and is audited; an order whose account has come back within terms is approved without an override. Enforced by the backend, never by the screen. *(Implemented Phase 4.)*
 
 4.3. **Outstanding balance is derived from invoices minus allocated payments**, not manually tracked as a single mutable number — payment allocation against specific invoices must be explicit (supports partial payments across multiple invoices).
 
@@ -221,3 +221,35 @@ These are the rules the system must enforce regardless of which channel (ERP/B2C
 11.9. **No gateway, no order.** With no payment provider configured, the storefront neither takes orders nor holds stock.
 
 11.10. **Order statuses:** DRAFT, PENDING_PAYMENT, PAYMENT_FAILED, PAID, CONFIRMED, PACKED, SHIPPED, DELIVERED, CANCELLED, RETURN_REQUESTED, RETURNED, REFUNDED. **Payment statuses:** PENDING, AUTHORIZED, CAPTURED, FAILED, REFUNDED, PARTIALLY_REFUNDED. Transitions are defined once (`order-status.ts`).
+
+## 12. B2B wholesale
+
+12.1. **Wholesale prices come from the same pricing engine**, for the customer's own audience (customer, group, price list). The hierarchy is customer → customer group → price list → category → default; the portal says which applied. A wholesale price is shown before GST first.
+
+12.2. **Price on request is a real answer**: a piece the business flags, or one the engine cannot price honestly (no weight, unvalued stones, no rate, no rule), is never shown with a number. It can still be added to a PO, and the seller quotes it.
+
+12.3. **Minimum order quantity and "offered to wholesale" are enforced by the backend** at cart, PO submission and approval — whatever the browser sent. A price, discount or total in a request is refused. Stock is *not* a blocker at PO time (wholesale may order more than the shelf holds); it is reported, and enforced at allocation.
+
+12.4. **A quotation freezes prices** for its validity period (each line an immutable price snapshot, concessions recorded as overrides). An accepted quotation becomes a sales order at exactly those prices, whatever the metal rate has done. An expired or superseded quotation cannot be accepted. A concession may only be a percentage off or a target price below the standard price — never a mark-up.
+
+12.5. **A sales order is the seller's commitment**: it is where credit is checked, stock is allocated and the price is frozen. Allocation is all-or-nothing per order and holds specific pieces in the ledger; short stock is reported line by line and the order waits.
+
+12.6. **Invoicing sells the pieces and issues the invoice together.** The due date is the issue date plus the customer's payment terms (business days, IST); an invoice is overdue the day after it falls due. The GST split (CGST + SGST, or IGST) is taken from the frozen snapshots.
+
+12.7. **Outstanding, overdue, an invoice's paid amount and its status are derived**, never stored. Invoices, sales orders and quotations are immutable once issued; corrections are new documents.
+
+## 13. Offline payments
+
+13.1. **A payment is a record until it is verified.** A customer may report a payment (a claim); staff may enter one. Neither settles anything.
+
+13.2. **Maker–checker**: the person who recorded a payment cannot verify it.
+
+13.3. **Only a verified payment can be allocated**, explicitly, to invoices of the same customer, by someone with `accounting.create_payment`. An allocation cannot exceed the invoice's balance or the payment's unapplied amount, and racing allocations cannot over-apply either.
+
+13.4. **An invoice is paid only by allocations.** Entering or verifying a payment never marks an invoice paid.
+
+13.5. **A verified payment that turns out not to have cleared (a bounced cheque) is reversed**, which reverses its allocations; the invoices are owed again. A rejected payment settles nothing.
+
+13.6. **Methods**: BANK_TRANSFER, NEFT, RTGS, IMPS, CHEQUE, CASH, OTHER. A payment cannot be dated in the future; amounts are positive whole paise.
+
+13.7. **Every sensitive step is audited** with actor and reason: profile and credit changes, credit overrides, quotations, approvals, allocations, invoices, payment recording, verification, rejection, allocation and reversal.

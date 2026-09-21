@@ -104,6 +104,10 @@ The storefront is the same brand as the ERP but deliberately does **not** look l
 - **Images load progressively:** a tinted placeholder, a short fade-in on load, a monogram fallback on failure, `loading="lazy"` except the first image. Motion is limited to fades, small translations and a slow image scale on hover, and is switched off under `prefers-reduced-motion`.
 - **Mobile first:** phone header with menu + search left and wishlist + bag right around a centred wordmark; swipeable scroll-snap gallery with a counter; filter sheet that reports the live result count; a sticky bottom buy bar that appears only once the real buttons scroll away.
 
+## 7B. Wholesale portal language (`apps/b2b-portal`)
+
+Same brand, deliberately *not* the storefront: less editorial, more data. A single Plus Jakarta Sans face at small sizes, compact 36 px controls, a persistent sidebar with counts (a hamburger drawer on phones), tables as the primary view (cards on phones), tabular numerals for every amount, and a header that always shows available credit. Orange is reserved for the one primary action on a screen and for counts; status uses the success / warning / danger / info tokens as quiet chips. Money is read to the paisa; prices show before GST first. **Colour tokens are plain CSS variables, so opacity modifiers (`bg-x/40`) do not work** — use the `-subtle` tokens. Credit is a first-class object: one panel (available, limit, outstanding, on approved orders, overdue) and one warning component that always says *what to do*.
+
 ## 8. What this doc is not
 
 Not a final visual spec (no Figma-equivalent color values beyond the palette given, no locked font license) — it is the ruleset implementation must follow so that ERP, storefront, and B2B portal are visibly one brand, and so no screen gets designed in isolation with its own one-off styling.

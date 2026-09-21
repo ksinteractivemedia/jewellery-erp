@@ -68,11 +68,11 @@ export const NAV: NavGroup[] = [
   {
     label: "B2B",
     items: [
-      { label: "Customers", href: "/b2b/customers", icon: Users, permission: P.B2B_VIEW },
+      { label: "Accounts", href: "/b2b/customers", icon: Users, permission: P.B2B_VIEW },
       { label: "Purchase Orders", href: "/b2b/purchase-orders", icon: ClipboardList, permission: P.B2B_VIEW },
       { label: "Quotations", href: "/b2b/quotations", icon: FileSignature, permission: P.B2B_VIEW },
-      { label: "Credit", href: "/b2b/credit", icon: CreditCard, permission: P.B2B_VIEW },
-      { label: "Outstanding", href: "/b2b/outstanding", icon: AlertTriangle, permission: P.B2B_VIEW },
+      { label: "Orders & credit", href: "/b2b/credit", icon: CreditCard, permission: P.B2B_VIEW },
+      { label: "Invoices & payments", href: "/b2b/outstanding", icon: AlertTriangle, permission: P.B2B_VIEW },
     ],
   },
   {

@@ -27,6 +27,11 @@ const STATUS_BY_CODE: Record<string, number> = {
   WEBHOOK_REJECTED: 400,
   PAYMENT_PROVIDER_ERROR: 502,
   PAYMENTS_NOT_CONFIGURED: 503,
+  ORDER_BLOCKED: 409,
+  CREDIT_BLOCKED: 409,
+  STOCK_SHORT: 409,
+  SELF_VERIFICATION: 409,
+  QUOTE_EXPIRED: 409,
 };
 
 export const notFoundHandler: RequestHandler = (_req, res) => {

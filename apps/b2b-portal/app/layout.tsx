@@ -1,33 +1,22 @@
 import type { Metadata } from "next";
-import { Fraunces, Plus_Jakarta_Sans } from "next/font/google";
-import { Toaster, TooltipProvider } from "@jewellery/ui";
-import { SiteFooter } from "../components/site-footer";
-import { WholesaleHeader } from "../components/wholesale-header";
-import { StoreProvider } from "../lib/store-context";
+import { Plus_Jakarta_Sans } from "next/font/google";
+import { Providers } from "../components/providers";
 import "./globals.css";
 
-const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-display", display: "swap" });
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Suvarna Wholesale — B2B Portal",
-  description: "Wholesale ordering, price lists and account management for Suvarna's registered retail partners.",
+  title: { default: "Suvarna Wholesale", template: "%s · Suvarna Wholesale" },
+  description: "Wholesale ordering, quotations, invoices and account management for registered trade customers.",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${fraunces.variable} ${jakarta.variable}`}>
-        <TooltipProvider delayDuration={200}>
-          <StoreProvider>
-            <div className="flex min-h-screen flex-col">
-              <WholesaleHeader />
-              <main className="flex-1">{children}</main>
-              <SiteFooter />
-            </div>
-          </StoreProvider>
-        </TooltipProvider>
-        <Toaster />
+    <html lang="en-IN">
+      <body className={jakarta.variable}>
+        <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-foreground focus:px-3 focus:py-2 focus:text-background">Skip to content</a>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

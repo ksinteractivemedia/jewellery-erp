@@ -159,6 +159,19 @@ The dashboard is a composition of independent sections, each with its own API en
 - **Config:** `CHECKOUT_RESERVATION_MINUTES` (default 20), `STORE_BASE_URL` (payment pages return here; the browser supplies only a path). Delivery options and the HSN are `StorefrontContent` data.
 - **Dev/test:** `dev-adapters/payment-sandbox.ts` — a gateway that behaves like a real one (own authoritative state, signed webhooks, ids, async refunds) plus a hosted payment page. Not importable from `src/`.
 
+## 5D. B2B wholesale — **implemented** (Phase 4)
+
+`apps/api/src/modules/b2b`, exposed twice: the **buyer's portal API** (`/api/portal`, `apps/b2b-portal`) and the **seller's API** (`/api/b2b`, the ERP desk). Same services, different door.
+
+- **Identity and scoping.** A buyer is a `B2B_BUYER` user linked to one `Customer`; `requireBuyer` loads that link from the database and every portal handler passes *that* customer id into the service, so a request cannot name another customer. Staff use the seller API and permissions (no roles named anywhere). Buyer authorisation by identity, not permission, is a deliberate exception to "permissions everywhere": there is no per-buyer role model yet.
+- **Pricing.** `priceFor` → `priceDesignWithEvidence(world, design, buyerState, audience)`. The audience carries customer, group and price list, so rule resolution is the engine's (customer → group → price list → category → default); a hand-entered concession is an engine **override**, recorded as such in the snapshot. Nothing in the module does price arithmetic.
+- **Documents and lifecycle** (`b2b-status.ts`): PO `DRAFT → SUBMITTED → UNDER_REVIEW → QUOTED ⇄ NEGOTIATING → APPROVED` (or REJECTED / CANCELLED); quotation `ISSUED → ACCEPTED / REVISION_REQUESTED / SUPERSEDED / REJECTED` (EXPIRED derived at read, enforced at accept); sales order `PENDING_CREDIT_APPROVAL | APPROVED → ALLOCATED → INVOICED` (or CANCELLED); payment `PENDING_VERIFICATION → VERIFIED → REVERSED` (or REJECTED). All moves are compare-and-set on the status read.
+- **Credit** (`credit.ts`, `commitSalesOrder`): position = limit, outstanding (unpaid invoice balances), committed (approved, uninvoiced orders), overdue; `checkCredit` returns reasons with actions. Enforcement is inside a transaction that first writes `Customer.creditSeq`, so concurrent approvals for one customer conflict and the loser re-reads the winner's commitment.
+- **Fulfilment.** `allocate` holds specific pieces with a ledger `RESERVATION` (no expiry) — all lines or none, retrying on lost races; `invoice` posts the ledger `SALE` and issues the invoice in one transaction, taking the CGST/SGST/IGST split from the frozen snapshots (asserted equal to the order's GST).
+- **Payments and allocation.** `verify` refuses the recorder; `allocate` writes the payment and each invoice in one transaction (`allocationSeq`) so racing allocations conflict rather than over-apply; `reverse` marks the payment's allocations reversed. Invoice `paid`, `balance`, status and overdue are computed from unreversed allocations and the due date — never stored.
+- **Derived, never stored:** outstanding, overdue, available credit, an invoice's paid amount and status, ageing buckets.
+- **Read models** (`b2b-reads.service.ts`) serve both doors; the portal catalogue is filtered, sorted and paged in memory (fine for hundreds of designs; needs a price index at thousands).
+
 ## 6. Inventory ledger and concurrency — **implemented** (Phase 1.7)
 
 **The model.** `Product` is a catalogue design; `InventoryItem` is a physical piece (or batch); `InventoryLedger` is its immutable history; `Transaction` is the business event behind one or more ledger lines. Stock is never a quantity on a product.

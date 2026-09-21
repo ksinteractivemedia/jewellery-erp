@@ -4,6 +4,26 @@
 @tailwind components;
 @tailwind utilities;
 
-html {
-  font-family: var(--font-sans);
+html { font-family: var(--font-sans); }
+body { @apply bg-background text-foreground antialiased; font-size: 0.875rem; }
+
+/* A wholesale desk: compact, tabular, quiet. Orange is reserved for the one primary action on a screen. */
+@layer components {
+  .btn { @apply inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-md px-4 text-[0.8125rem] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-45; }
+  .btn-primary { @apply bg-primary text-[var(--palette-black)] hover:bg-primary-hover; }
+  .btn-dark { @apply bg-foreground text-background hover:opacity-90; }
+  .btn-outline { @apply border border-border bg-surface text-foreground hover:border-foreground; }
+  .btn-ghost { @apply text-foreground hover:bg-surface-sunken; }
+  .btn-danger { @apply border border-danger bg-surface text-danger hover:bg-danger-subtle; }
+  .btn-sm { @apply h-8 px-3 text-[0.75rem]; }
+  .field { @apply h-9 w-full rounded-md border border-border bg-surface px-3 text-[0.8125rem] placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[invalid=true]:border-danger; }
+  .label { @apply text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-muted; }
+  .card { @apply rounded-lg border border-border-subtle bg-surface; }
+  .tbl { @apply w-full border-collapse text-[0.8125rem]; }
+  .tbl th { @apply whitespace-nowrap border-b border-border bg-surface-sunken px-3 py-2 text-left text-[0.6875rem] font-semibold uppercase tracking-[0.06em] text-muted; }
+  .tbl td { @apply border-b border-border-subtle px-3 py-2.5 align-middle; }
+  .tbl tbody tr:hover { @apply bg-surface-sunken; }
+  .num { @apply tabular-nums; font-variant-numeric: tabular-nums; }
+  .chip { @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium; }
 }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }

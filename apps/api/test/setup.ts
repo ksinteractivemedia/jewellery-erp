@@ -1,6 +1,25 @@
+import http from "node:http";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import { afterAll, afterEach, beforeAll } from "vitest";
+
+/**
+ * supertest starts a server per request with `app.listen(0)` — which binds the WILDCARD address, dual-stack — and then connects to
+ * 127.0.0.1. On macOS a wildcard bind does not conflict with another process already listening on 127.0.0.1:<the same port> (an
+ * IDE helper, a dev server …), so the kernel can hand out such a port and the request is then answered by that OTHER process: a
+ * stray 401/404/400 carrying someone else's body. That is the long-unexplained "intermittent 401 where a 403 was expected"
+ * failure — it never reproduced in isolation because it needs a port collision. Our servers listen on `::` too, and nothing else
+ * listens on IPv6 loopback, so test HTTP requests go to `[::1]` instead of `127.0.0.1` (MongoDB, which speaks its own protocol
+ * over `net`, is untouched).
+ */
+const nativeRequest = http.request;
+http.request = function patched(this: unknown, ...args: unknown[]) {
+  const first = args[0] as { host?: string; hostname?: string } | string | URL | undefined;
+  if (first && typeof first === "object" && !(first instanceof URL) && (first.hostname === "127.0.0.1" || first.host === "127.0.0.1")) {
+    args[0] = { ...first, host: "::1", hostname: "::1" };
+  }
+  return (nativeRequest as (...a: unknown[]) => http.ClientRequest).apply(this, args);
+} as typeof http.request;
 
 // bcrypt at production cost (12) makes a suite that creates dozens of users crawl; 4 is the minimum.
 process.env.BCRYPT_ROUNDS = "4";

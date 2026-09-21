@@ -32,3 +32,4 @@ export * from "./stock-transfer";
 export * from "./stock-adjustment";
 export * from "./inventory-views";
 export * from "./order";
+export * from "./b2b";

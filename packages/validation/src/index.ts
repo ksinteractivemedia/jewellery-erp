@@ -31,3 +31,4 @@ export * from "./dashboard";
 export * from "./storefront";
 export * from "./price-list";
 export * from "./checkout";
+export * from "./b2b";

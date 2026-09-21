@@ -34,7 +34,9 @@ export type RefundStatus = "PENDING" | "SUCCEEDED" | "FAILED";
  */
 export interface PriceSnapshot {
   id: Id;
+  /** The commercial document this price belongs to (a B2C order, a B2B quotation or sales order). */
   orderId: Id;
+  documentType?: "ORDER" | "B2B_QUOTATION" | "B2B_SALES_ORDER";
   productId: Id;
   variantId?: Id;
   sku: string;
@@ -54,8 +56,9 @@ export interface PriceSnapshot {
     taxRuleId?: Id;
     sellerState: string;
     buyerState: string;
-    channel: "B2C";
-    customerType: "B2C";
+    channel: "B2C" | "B2B";
+    customerType: "B2C" | "B2B";
+    customerId?: Id;
     categoryId?: Id;
   };
   /** The pricing engine's own output for ONE unit. */

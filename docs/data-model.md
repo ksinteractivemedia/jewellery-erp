@@ -201,6 +201,15 @@ One per payment attempt: `orderId`, `provider`, `providerRef` (unique with provi
 ### `paymentEvents` — **implemented**
 Every webhook delivery: `provider`, `eventId` (unique together), `type`, `providerRef`, `amount`, `receivedAt`, `processedAt`, `outcome` (APPLIED · IGNORED). The unique key is what makes a redelivered webhook harmless.
 
+### `customers.b2b` — **implemented** (Phase 4)
+`contacts[] {name, email?, phone?, designation?, isPrimary}`, `creditLimit` (paise), `paymentTermsDays`, `priceListCode?` (the version in force is resolved at pricing time), `salespersonId?`, `territory?`, `creditHold`, `blockOnOverdue`; plus a top-level, internal `creditSeq` bumped inside the transaction that approves an order (the credit lock). **No stored outstanding or overdue** — derived from invoices and allocations. `products` gain `b2bMinOrderQuantity?` and `b2bPriceOnRequest?`.
+
+### `b2bpurchaseorders`, `b2bquotations`, `b2bsalesorders`, `b2binvoices` — **implemented** (Phase 4)
+Each document embeds its lines (`productId`, `variantId?`, `sku`, `name`, `quantity`, `priceOnRequest?`, per-unit and per-line taxable / GST / total in paise, `basis`, `concession?`, `priceSnapshotId?`) and `totals {taxable, gst, total, complete}`. **PO:** `poNo` (`BPO-`), `customerPoRef?`, `status`, `shippingAddress` (copied), `credit` (the check shown at submission), `quotationId?`, `salesOrderId?`, `history[]`. **Quotation:** `quoteNo` (`QT-`), `version` (unique per PO), `validUntil`, `terms?`, `messages[]` (the negotiation thread). **Sales order:** `soNo` (`SO-`), one per PO, `credit {check, override?{reason, at, byId}}`, `allocations[] {lineIndex, itemIds[]}`, `shortfall?`, `invoiceId?`, `history[]`. **Invoice:** `invoiceNo` (`INV-`), one per sales order, `issueDate` / `dueDate` (business days), `taxes {supplyType, cgst, sgst, igst}`, `gstin` snapshot, `allocationSeq`. **Frozen at the Mongoose layer:** quotation, sales-order and invoice commercial fields (lines, totals, parties, numbers, addresses).
+
+### `b2bpayments`, `b2bpaymentallocations` — **implemented** (Phase 4)
+**Payment:** `paymentNo` (`PAY-`), `customerId`, `method` (7 offline methods), `amount`, `receivedDate`, `reference?`, `bankName?`, `source` (CUSTOMER | STAFF), `status` (PENDING_VERIFICATION | VERIFIED | REJECTED | REVERSED), `recordedBy*`, `verifiedBy*`, `verifiedAt`, `rejectedReason?`, `allocationSeq`. **Allocation:** `paymentId`, `invoiceId`, `customerId`, `amount`, `createdById`, `reversedAt?`, `reversedReason?` — amounts and parties frozen; only the reversal fields change. An invoice's paid amount is the sum of unreversed allocations. `priceSnapshots` gain `documentType` (ORDER | B2B_QUOTATION | B2B_SALES_ORDER).
+
 ### `priceLists`
 Versionable, effective-dated (this phase's explicit requirement).
 - `code` (stable across versions), `name`, `version`, `customerGroupId`, `customerId`, `channel`, `effectiveFrom`, `effectiveTo`, `isActive`

@@ -76,6 +76,8 @@ export async function roleId(name: RoleName): Promise<string> {
 export async function loginAs(app: Express, email: string, password = PASSWORD) {
   const agent = request.agent(app);
   const res = await agent.post("/api/auth/login").send({ email, password });
+  // A sign-in that silently fails would surface later as a baffling 401 in some unrelated assertion — say what actually happened.
+  if (res.status !== 200) console.error(`[test] sign-in for ${email} answered ${res.status}: ${JSON.stringify(res.body)}`);
   return { agent, res, accessToken: res.body.accessToken as string, cookies: res.headers["set-cookie"] as unknown as string[] | undefined };
 }
 

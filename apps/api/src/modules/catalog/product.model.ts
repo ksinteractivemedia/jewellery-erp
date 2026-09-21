@@ -50,6 +50,8 @@ const productSchema = new Schema<ProductAttrs>(
     tags: { type: [String], default: [] },
     b2cEnabled: { type: Boolean, default: false },
     b2bEnabled: { type: Boolean, default: false },
+    b2bMinOrderQuantity: { type: Number, min: 1 },
+    b2bPriceOnRequest: { type: Boolean },
     isActive: { type: Boolean, default: true },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
     updatedBy: { type: Schema.Types.ObjectId, ref: "User" },

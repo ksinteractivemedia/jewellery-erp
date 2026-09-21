@@ -106,7 +106,19 @@ export function priceDesign(world: PricingWorld, design: PriceableDesign): Store
   return priceDesignWithEvidence(world, design).price;
 }
 
-export function priceDesignWithEvidence(world: PricingWorld, design: PriceableDesign, buyerState?: string): PricedDesign {
+/** Who is buying, when it isn't an anonymous shopper: the B2B portal passes the customer, their group and their price list. */
+export interface PricingAudience {
+  channel: "B2C" | "B2B";
+  customerType: "B2C" | "B2B";
+  customerId?: string;
+  customerGroupId?: string;
+  priceListId?: string;
+  /** A hand-entered concession, replacing what resolution picked (recorded by the engine as an OVERRIDE). */
+  discountOverride?: { type: "PERCENTAGE" | "FLAT"; value: number; appliesTo?: "TOTAL" | "MAKING_CHARGES" };
+}
+const RETAIL: PricingAudience = { channel: "B2C", customerType: "B2C" };
+
+export function priceDesignWithEvidence(world: PricingWorld, design: PriceableDesign, buyerState?: string, audience: PricingAudience = RETAIL): PricedDesign {
   const unavailable = (reason: StorePriceUnavailableReason): PricedDesign => ({ price: onRequest(reason) });
   const metal = world.metals.get(design.metalId);
   if (!metal || !design.purity) return unavailable("PRICING_NOT_CONFIGURED");
@@ -135,8 +147,17 @@ export function priceDesignWithEvidence(world: PricingWorld, design: PriceableDe
       taxRule: world.taxRule,
       sellerState: world.sellerState,
       buyerState: buyer,
-      context: { asOf: world.now, channel: "B2C", customerType: "B2C", ...(design.categoryId ? { categoryId: design.categoryId } : {}) },
+      context: {
+        asOf: world.now,
+        channel: audience.channel,
+        customerType: audience.customerType,
+        ...(audience.customerId ? { customerId: audience.customerId } : {}),
+        ...(audience.customerGroupId ? { customerGroupId: audience.customerGroupId } : {}),
+        ...(audience.priceListId ? { priceListId: audience.priceListId } : {}),
+        ...(design.categoryId ? { categoryId: design.categoryId } : {}),
+      },
       rules: world.rules,
+      ...(audience.discountOverride ? { overrides: { discountRule: audience.discountOverride } } : {}),
     });
     // A jewellery price without its making charge would be wrong, not merely incomplete.
     if (!b.rules.making) return unavailable("PRICING_NOT_CONFIGURED");
@@ -169,8 +190,9 @@ export function priceDesignWithEvidence(world: PricingWorld, design: PriceableDe
           ...(world.taxRule.id ? { taxRuleId: world.taxRule.id } : {}),
           sellerState: world.sellerState,
           buyerState: buyer,
-          channel: "B2C",
-          customerType: "B2C",
+          channel: audience.channel,
+          customerType: audience.customerType,
+          ...(audience.customerId ? { customerId: audience.customerId } : {}),
           ...(design.categoryId ? { categoryId: design.categoryId } : {}),
         },
       },

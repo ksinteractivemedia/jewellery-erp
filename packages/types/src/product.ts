@@ -39,6 +39,10 @@ export interface Product extends Timestamps {
   tags: string[];
   b2cEnabled: boolean;
   b2bEnabled: boolean;
+  /** The fewest pieces a wholesale line may order. Absent = 1. */
+  b2bMinOrderQuantity?: number;
+  /** Never show a price to wholesale buyers: they must ask for a quotation (rare or custom pieces). */
+  b2bPriceOnRequest?: boolean;
   isActive: boolean;
   createdBy?: Id;
   updatedBy?: Id;
