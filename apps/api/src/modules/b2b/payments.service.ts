@@ -2,13 +2,16 @@ import { Types } from "mongoose";
 import type { B2BPayment, B2BPaymentMethod } from "@jewellery/types";
 import { ConflictError, DomainValidationError, NotFoundError } from "../../shared/errors";
 import { AUDIT_ACTIONS } from "../audit/audit.service";
+import { postPaymentReceived } from "../accounting/sales-posting";
+import { reverseJournal } from "../accounting/posting.service";
+import { AccountingEntryModel } from "../accounting/accounting-entry.model";
 import { CustomerModel } from "../customers/customer.model";
 import { businessDay } from "../dashboard/range";
 import { withInventoryTransaction } from "../inventory/inventory-transaction.service";
 import { SelfVerificationError } from "./b2b.errors";
 import { AllocationModel, B2BPaymentModel, InvoiceModel, SalesOrderModel, type B2BPaymentDocument } from "./b2b.models";
 import { paidByInvoice } from "./b2b-core";
-import { assertPaymentTransition } from "./b2b-status";
+import { checkPaymentAction } from "./b2b-status";
 import { audit, entry, nextNo, oid, type Actor } from "./b2b-store";
 import { allocationViews, paymentView, stripAlloc } from "./b2b-views";
 
@@ -74,7 +77,7 @@ export function createB2BPaymentService(deps: { now?: () => Date }) {
     async verify(paymentId: string, actor: Actor, note?: string): Promise<B2BPayment> {
       const p = await load(paymentId);
       if (String(p.recordedById) === actor.id) throw new SelfVerificationError();
-      assertPaymentTransition(p.status, "VERIFIED");
+      checkPaymentAction("verify", p.status);
       const moved = await B2BPaymentModel.findOneAndUpdate({ _id: p._id, status: "PENDING_VERIFICATION" }, { $set: { status: "VERIFIED", verifiedById: oid(actor.id), verifiedByName: actor.name, verifiedAt: clock() } }, { new: true });
       if (!moved) throw new ConflictError("This payment has already been dealt with.");
       await audit(actor, AUDIT_ACTIONS.B2B_PAYMENT_VERIFIED, "Payment", p.id, { paymentNo: p.paymentNo, amount: p.amount, note });
@@ -83,7 +86,7 @@ export function createB2BPaymentService(deps: { now?: () => Date }) {
 
     async reject(paymentId: string, actor: Actor, reason: string): Promise<B2BPayment> {
       const p = await load(paymentId);
-      assertPaymentTransition(p.status, "REJECTED");
+      checkPaymentAction("reject", p.status);
       const moved = await B2BPaymentModel.findOneAndUpdate({ _id: p._id, status: "PENDING_VERIFICATION" }, { $set: { status: "REJECTED", rejectedReason: reason, verifiedById: oid(actor.id), verifiedByName: actor.name, verifiedAt: clock() } }, { new: true });
       if (!moved) throw new ConflictError("This payment has already been dealt with.");
       await audit(actor, AUDIT_ACTIONS.B2B_PAYMENT_REJECTED, "Payment", p.id, { paymentNo: p.paymentNo, reason });
@@ -117,6 +120,8 @@ export function createB2BPaymentService(deps: { now?: () => Date }) {
             await SalesOrderModel.updateOne({ _id: inv.salesOrderId }, { $push: { history: entry("SETTLED", "SYSTEM", clock(), `${inv.invoiceNo} paid in full`) } }, { session });
           }
         }
+        // One entry for the whole allocation call — Dr Cash/Bank, Cr AR, for what was actually applied (not the payment's full face value).
+        await postPaymentReceived(session, { channel: "B2B", date: businessDay(clock()), paymentId: pay.id, paymentNo: pay.paymentNo, performedBy: actor.id, performedByName: actor.name, amount: requested, method: pay.method });
       });
       await audit(actor, AUDIT_ACTIONS.B2B_PAYMENT_ALLOCATED, "Payment", p.id, { paymentNo: p.paymentNo, allocations: [...merged].map(([invoiceId, amount]) => ({ invoiceId, amount })), settledInvoices: settled });
       return view((await B2BPaymentModel.findById(p._id))!);
@@ -125,11 +130,14 @@ export function createB2BPaymentService(deps: { now?: () => Date }) {
     /** A verified payment turns out not to have cleared (a bounced cheque): it is reversed and every invoice it paid is owed again — automatically, because paid is derived. */
     async reverse(paymentId: string, actor: Actor, reason: string): Promise<B2BPayment> {
       const p = await load(paymentId);
-      assertPaymentTransition(p.status, "REVERSED");
+      checkPaymentAction("reverse", p.status);
       await withInventoryTransaction(async (session) => {
         const moved = await B2BPaymentModel.findOneAndUpdate({ _id: p._id, status: "VERIFIED" }, { $set: { status: "REVERSED", reversedReason: reason }, $inc: { allocationSeq: 1 } }, { new: true, session });
         if (!moved) throw new ConflictError("Only a verified payment can be reversed.");
         await AllocationModel.updateMany({ paymentId: p._id, reversedAt: { $exists: false } }, { $set: { reversedAt: clock(), reversedReason: reason } }, { session });
+        // A payment may have been allocated across several separate calls, each its own journal entry — reverse every one of them.
+        const posted = await AccountingEntryModel.find({ referenceType: "PAYMENT_RECEIVED", referenceId: p._id }).session(session);
+        for (const j of posted) await reverseJournal(session, j.id, { performedBy: actor.id, performedByName: actor.name, reason: `Payment reversed: ${reason}` });
       });
       await audit(actor, AUDIT_ACTIONS.B2B_PAYMENT_REVERSED, "Payment", p.id, { paymentNo: p.paymentNo, amount: p.amount, reason });
       return view((await B2BPaymentModel.findById(p._id))!);

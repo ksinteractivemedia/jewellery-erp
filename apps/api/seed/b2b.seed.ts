@@ -78,7 +78,8 @@ export async function seedB2B(deps: { b2b: B2BModule; password: string; staff: {
   // Mehta: an old invoice, part-paid and overdue; a recent one, unpaid; both through the real flow.
   const invoiceIt = async (customerId: string, rows: [string, number][], issuedDaysAgo: number) => {
     const p = await po(customerId, rows, { customerPoRef: `PO/${issuedDaysAgo}D` });
-    const so = await b2b.procurement.approvePurchaseOrder(p.id, staff.b2bManager, { canOverrideCredit: true });
+    await b2b.procurement.approvePurchaseOrder(p.id, staff.b2bManager);
+    const so = await b2b.procurement.convertPurchaseOrder(p.id, staff.b2bManager, { canOverrideCredit: true });
     await b2b.fulfilment.allocate(so.id, staff.b2bManager);
     const inv = await b2b.fulfilment.invoice(so.id, staff.b2bManager);
     const issue = addDays(businessDay(new Date()), -issuedDaysAgo);
@@ -97,9 +98,10 @@ export async function seedB2B(deps: { b2b: B2BModule; password: string; staff: {
   await po(mehta.id, stocked(2, 2), { customerPoRef: "PO/FESTIVE-01", notes: "Needed before Dhanteras" });
   const quoted = stocked(1, 1)[0]!;
   const q = await po(mehta.id, [["GLD-CHK-0002", 1], quoted], { customerPoRef: "PO/BRIDAL-07" });
-  await b2b.procurement.issueQuotation(q.id, staff.b2bManager, { lines: [{ sku: quoted[0], discountPercent: 3, note: "Bridal season" }], validDays: 10, terms: "Delivery in 7 working days. Prices valid until the date shown.", message: "Happy to hold these for you." } as never);
+  await b2b.procurement.issueQuotation(q.id, staff.b2bManager, { lines: [{ sku: quoted[0], discountPercent: 3, note: "Bridal season" }], validDays: 10, issue: true, terms: "Delivery in 7 working days. Prices valid until the date shown.", message: "Happy to hold these for you." } as never);
   const big = await po(shree.id, [...stocked(2, 2)].map(([sku, n]) => [sku, n * 40] as [string, number]), { customerPoRef: "SG/2026/031" });
-  await b2b.procurement.approvePurchaseOrder(big.id, staff.b2bManager, { canOverrideCredit: false });
+  await b2b.procurement.approvePurchaseOrder(big.id, staff.b2bManager);
+  await b2b.procurement.convertPurchaseOrder(big.id, staff.b2bManager, { canOverrideCredit: false });
 
   return { customers: 3, buyers: buyers.map((b) => b.email) };
 }

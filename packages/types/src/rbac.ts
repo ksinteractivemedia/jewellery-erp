@@ -35,13 +35,27 @@ export const PERMISSIONS = {
   PURCHASING_VIEW: "purchasing.view",
   PURCHASING_CREATE: "purchasing.create",
   PURCHASING_APPROVE: "purchasing.approve",
+  PURCHASING_RECEIVE: "purchasing.receive",
+  PURCHASING_CANCEL: "purchasing.cancel",
 
   PRODUCTION_VIEW: "production.view",
   PRODUCTION_CREATE: "production.create",
   PRODUCTION_APPROVE: "production.approve",
 
+  RETURNS_VIEW: "returns.view",
+  RETURNS_CREATE: "returns.create",
+  RETURNS_APPROVE: "returns.approve",
+
+  EXCHANGE_VIEW: "exchange.view",
+  EXCHANGE_CREATE: "exchange.create",
+
+  REPAIR_VIEW: "repair.view",
+  REPAIR_CREATE: "repair.create",
+  REPAIR_APPROVE: "repair.approve",
+
   ACCOUNTING_VIEW: "accounting.view",
   ACCOUNTING_CREATE_PAYMENT: "accounting.create_payment",
+  ACCOUNTING_MANAGE: "accounting.manage",
 
   REPORTS_VIEW: "reports.view",
 

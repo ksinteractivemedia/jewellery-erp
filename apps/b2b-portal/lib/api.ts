@@ -26,7 +26,8 @@ async function toError(res: Response): Promise<ApiError> {
 
 const raw = (path: string, init: RequestInit = {}, withToken = true) => {
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  // FormData must go out without a content-type so the browser adds the multipart boundary.
+  if (init.body && !(init.body instanceof FormData) && !headers.has("content-type")) headers.set("content-type", "application/json");
   if (withToken && accessToken) headers.set("authorization", `Bearer ${accessToken}`);
   return fetch(`${API_URL}${path}`, { ...init, headers, credentials: "include", cache: "no-store" });
 };
@@ -70,6 +71,18 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
 }
 export const post = <T,>(path: string, body: unknown = {}) => api<T>(path, { method: "POST", body: JSON.stringify(body) });
 export const put = <T,>(path: string, body: unknown) => api<T>(path, { method: "PUT", body: JSON.stringify(body) });
+export const del = <T,>(path: string) => api<T>(path, { method: "DELETE" });
+export const postFile = <T,>(path: string, file: File) => { const fd = new FormData(); fd.set("file", file); return api<T>(path, { method: "POST", body: fd }); };
+/** Downloads a private, authorised file (an attachment) — never a public URL — and hands it to the browser as a save. */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  let res = await raw(path);
+  if (res.status === 401) { if (!(await refreshSession())) throw await toError(res); res = await raw(path); }
+  if (!res.ok) throw await toError(res);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
 
 export async function login(email: string, password: string): Promise<AuthSession> {
   const res = await raw("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }, false);

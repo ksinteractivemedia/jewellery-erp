@@ -1,8 +1,8 @@
 "use client";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import type { B2BAccount, B2BCartQuote, B2BCatalogueResult, B2BDashboard, B2BInvoice, B2BOutstanding, B2BPayment, B2BPurchaseOrder, B2BQuotation, B2BSalesOrder } from "@jewellery/types";
-import { api, post } from "./api";
+import type { B2BAccount, B2BAttachment, B2BCartQuote, B2BCatalogueResult, B2BDashboard, B2BInvoice, B2BOutstanding, B2BPayment, B2BPurchaseOrder, B2BQuotation, B2BSalesOrder, Return } from "@jewellery/types";
+import { api, del, downloadFile, post, postFile } from "./api";
 import type { CartLine } from "./cart";
 
 /** Every hook is a plain read of the API's answer. The portal computes nothing: prices, credit and statuses all arrive from the backend. */
@@ -41,11 +41,18 @@ export const useOrder = (id: string) => useQuery({ queryKey: ["portal", "order",
 export const useInvoices = () => useQuery({ queryKey: ["portal", "invoices"], queryFn: async () => (await get<{ items: B2BInvoice[] }>("/invoices")).items });
 export const useInvoice = (id: string) => useQuery({ queryKey: ["portal", "invoice", id], enabled: !!id, queryFn: async () => (await get<{ invoice: B2BInvoice }>(`/invoices/${id}`)).invoice });
 export const usePayments = () => useQuery({ queryKey: ["portal", "payments"], queryFn: async () => (await get<{ items: B2BPayment[] }>("/payments")).items });
+export const useOrderReturns = (id: string) => useQuery({ queryKey: ["portal", "order", id, "returns"], enabled: !!id, queryFn: async () => (await get<{ items: Return[] }>(`/orders/${id}/returns`)).items });
+export const requestOrderReturn = (id: string, lineRefs: string[], reason: string, reasonNote?: string) =>
+  post<{ return: Return }>(`${P}/orders/${id}/returns`, { lineRefs, reason, ...(reasonNote ? { reasonNote } : {}) }).then((r) => r.return);
 
 export const createPurchaseOrder = (body: object) => post<{ purchaseOrder: B2BPurchaseOrder }>(`${P}/purchase-orders`, body);
 export const submitPurchaseOrder = (id: string) => post<{ purchaseOrder: B2BPurchaseOrder }>(`${P}/purchase-orders/${id}/submit`);
 export const cancelPurchaseOrder = (id: string, reason?: string) => post<{ purchaseOrder: B2BPurchaseOrder }>(`${P}/purchase-orders/${id}/cancel`, reason ? { reason } : {});
-export const acceptQuotation = (id: string) => post<{ order: B2BSalesOrder }>(`${P}/quotations/${id}/accept`);
+export const addAttachment = (poId: string, file: File) => postFile<{ attachment: B2BAttachment }>(`${P}/purchase-orders/${poId}/attachments`, file);
+export const removeAttachment = (poId: string, attachmentId: string) => del(`${P}/purchase-orders/${poId}/attachments/${attachmentId}`);
+export const downloadAttachment = (poId: string, attachmentId: string, filename: string) => downloadFile(`${P}/purchase-orders/${poId}/attachments/${attachmentId}`, filename);
+/** Accepting a quotation approves its purchase order at the quoted price; the seller still has to convert it into a sales order. */
+export const acceptQuotation = (id: string) => post<{ purchaseOrder: B2BPurchaseOrder }>(`${P}/quotations/${id}/accept`);
 export const counterQuotation = (id: string, body: object) => post<{ quotation: B2BQuotation }>(`${P}/quotations/${id}/counter`, body);
 export const declineQuotation = (id: string, reason?: string) => post<{ quotation: B2BQuotation }>(`${P}/quotations/${id}/decline`, reason ? { reason } : {});
 export const reportPayment = (body: object) => post<{ payment: B2BPayment }>(`${P}/payments`, body);

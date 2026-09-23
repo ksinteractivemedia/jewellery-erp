@@ -1,6 +1,9 @@
 import { Router, type RequestHandler } from "express";
-import { cancelOrderSchema, checkoutVerifySchema, initiatePaymentSchema, placeOrderSchema, verifyPaymentSchema } from "@jewellery/validation";
+import { cancelOrderSchema, checkoutVerifySchema, initiatePaymentSchema, placeOrderSchema, requestReturnByOrderLinesSchema, verifyPaymentSchema } from "@jewellery/validation";
 import type { OrdersModule } from "../../modules/orders";
+import { SYSTEM_ACTOR_ID } from "../../modules/inventory";
+import { requestReturnForOrderLines } from "../../modules/returns/return.service";
+import { listReturnsForOrder } from "../../modules/returns/returns-reads.service";
 import { asyncHandler } from "../middleware/async-handler";
 import { validateBody } from "../middleware/validate";
 import "../context";
@@ -42,6 +45,19 @@ export function createCheckoutRouter(deps: { orders: OrdersModule; writeLimiter:
   }));
   router.post("/orders/:orderNo/cancel", never, deps.writeLimiter, validateBody(cancelOrderSchema), asyncHandler(async (req, res) => {
     res.json({ order: await orders.cancel(await orderOf(req), req.body.reason) });
+  }));
+
+  // Returns — a signed-in-as-guest shopper may request one against their own order; approval, receiving,
+  // inspection and settlement stay staff-only (the ERP's Returns screen). The order id is never taken from
+  // the request body — it comes from the token-checked order the URL names.
+  router.get("/orders/:orderNo/returns", never, asyncHandler(async (req, res) => {
+    const order = await orderOf(req);
+    res.json({ items: await listReturnsForOrder(order.id) });
+  }));
+  router.post("/orders/:orderNo/returns", never, deps.writeLimiter, validateBody(requestReturnByOrderLinesSchema), asyncHandler(async (req, res) => {
+    const order = await orderOf(req);
+    const returned = await requestReturnForOrderLines({ id: SYSTEM_ACTOR_ID, name: order.customer.fullName }, "B2C", order.id, req.body);
+    res.status(201).json({ return: returned });
   }));
 
   router.post("/payments/webhooks/:provider", never, asyncHandler(async (req, res) => {

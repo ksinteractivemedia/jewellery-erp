@@ -16,7 +16,9 @@ export type InventoryStatus =
   | "IN_TRANSIT"
   | "HALLMARKING"
   | "SCRAP"
-  | "MELTING";
+  | "MELTING"
+  /** Terminal: a piece handed back to a customer at the end of a repair, that was never ours to sell (see `isCustomerOwned`). Not a sale, not stock — just the record that it left our custody. */
+  | "RETURNED_TO_CUSTOMER";
 
 export interface ManufacturingInfo {
   productionOrderId?: Id;
@@ -88,4 +90,13 @@ export interface InventoryItem extends Timestamps {
   ledgerSeq: number;
 
   manufacturingInfo?: ManufacturingInfo;
+
+  /**
+   * True only for a piece created by a repair intake for something the business never sold and
+   * does not own (brought in from elsewhere, or from before this system existed) — tracked through
+   * the ledger like any other piece while it's in our custody, but it can never become `AVAILABLE`
+   * stock and its `cost` is 0. Absent/false for everything else, including our own stock sent out
+   * for repair.
+   */
+  isCustomerOwned?: boolean;
 }

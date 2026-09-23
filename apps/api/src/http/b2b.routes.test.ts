@@ -2,7 +2,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { B2BAccount, B2BCartQuote, B2BCatalogueResult, B2BInvoice, B2BOutstanding, B2BPayment, B2BPurchaseOrder, B2BQuotation, B2BSalesOrder } from "@jewellery/types";
 import { PERMISSIONS } from "@jewellery/types";
-import { PASSWORD, buildTestApp, createStaff, loginAs, seedRbac, bearer } from "../../test/helpers";
+import { PASSWORD, buildTestApp, createStaff, loginAs, seedChartOfAccounts, seedRbac, bearer } from "../../test/helpers";
 import { type World, makeWorld, receive } from "../../test/inventory-fixtures";
 import { AuditLogModel } from "../modules/audit/audit-log.model";
 import { PermissionModel } from "../modules/auth/permission.model";
@@ -19,12 +19,15 @@ import { createCustomer } from "../modules/customers/customer.repository";
 import { InventoryItemModel } from "../modules/inventory/inventory-item.model";
 import { InventoryLedgerModel } from "../modules/inventory/inventory-ledger.model";
 import { createMetalRate } from "../modules/metals/metal-rate.repository";
-import { AllocationModel, B2BPaymentModel, InvoiceModel, PurchaseOrderModel, QuotationModel, SalesOrderModel } from "../modules/b2b";
+import { AllocationModel, B2BPaymentModel, InvoiceModel, PO_RULES, PurchaseOrderModel, QUOTATION_RULES, QuotationModel, SO_RULES, SalesOrderModel, PAYMENT_RULES, createMemoryDocumentStorage } from "../modules/b2b";
+import { PURCHASE_ORDER_STATUSES, QUOTATION_STATUSES, SALES_ORDER_STATUSES, B2B_PAYMENT_STATUSES } from "@jewellery/types";
+import { Types } from "mongoose";
 import { createPriceList } from "../modules/pricing/price-list.repository";
 import { PriceSnapshotModel } from "../modules/orders/price-snapshot.model";
 import { createPricingRule } from "../modules/pricing/pricing-rule.repository";
 import { StorefrontContentModel } from "../modules/storefront/storefront-content.model";
 import { businessDay, addDays } from "../modules/dashboard/range";
+import { AccountingEntryModel, ChartOfAccountModel } from "../modules/accounting";
 
 let t: ReturnType<typeof buildTestApp>;
 let w: World;
@@ -52,9 +55,19 @@ async function submitPo(rows: [string, number][], over: Record<string, unknown> 
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return res.body.purchaseOrder as B2BPurchaseOrder;
 }
+/** Approve a submitted PO (fixing the agreed terms), then convert it into a sales order — where credit is enforced. */
+async function approve(po: { id: string }, who = "manager") {
+  const res = await staffPost(`/purchase-orders/${po.id}/approve`, {}, who);
+  expect(res.status, JSON.stringify(res.body)).toBe(200);
+  return res.body.purchaseOrder as B2BPurchaseOrder;
+}
+async function convert(po: { id: string }, body: object = {}, who = "manager") {
+  return staffPost(`/purchase-orders/${po.id}/convert`, body, who);
+}
 async function approved(rows: [string, number][], who = "manager") {
   const po = await submitPo(rows);
-  const res = await staffPost(`/purchase-orders/${po.id}/approve`, {}, who);
+  await approve(po, who);
+  const res = await convert(po, {}, who);
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return { po, order: res.body.order as B2BSalesOrder };
 }
@@ -91,9 +104,12 @@ async function tokenFor(email: string) {
   return accessToken;
 }
 
+let docs: ReturnType<typeof createMemoryDocumentStorage>;
 beforeEach(async () => {
-  t = buildTestApp();
+  docs = createMemoryDocumentStorage();
+  t = buildTestApp(undefined, { documentStorage: docs });
   await seedRbac();
+  await seedChartOfAccounts();
   w = await makeWorld();
   await createMetalRate({ metalId: w.gold, purity: "22K", ratePerGram: 650_000, effectiveFrom: PAST, source: "MANUAL" } as never);
   await createTaxRule({ name: "GST", hsnCode: "7113", intraState: { cgst: 1.5, sgst: 1.5 }, interState: { igst: 3 }, validFrom: PAST });
@@ -383,19 +399,23 @@ describe("seller review, approval and the sales order", () => {
     const rev = await staffPost(`/purchase-orders/${po.id}/review`);
     expect(rev.status, JSON.stringify(rev.body)).toBe(200);
     expect(rev.body.purchaseOrder.status).toBe("UNDER_REVIEW");
-    const res = await staffPost(`/purchase-orders/${po.id}/approve`);
+    const approvedPo = await approve(po);
+    expect(approvedPo).toMatchObject({ status: "APPROVED", approved: { via: "DIRECT", totals: { taxable: BAND.taxable * 3, gst: BAND.gst * 3, total: BAND.total * 3 } } });
+    expect(approvedPo.salesOrderId).toBeUndefined(); // approving fixes the terms; it does not yet commit stock or credit
+    const res = await convert(po);
     expect(res.status).toBe(201);
     const so = res.body.order as B2BSalesOrder;
-    expect(so).toMatchObject({ status: "APPROVED", poNo: po.poNo, totals: { taxable: BAND.taxable * 3, gst: BAND.gst * 3, total: BAND.total * 3 } });
+    expect(so).toMatchObject({ status: "CONFIRMED", poNo: po.poNo, totals: { taxable: BAND.taxable * 3, gst: BAND.gst * 3, total: BAND.total * 3 } });
     expect(so.soNo).toMatch(/^SO-\d{6}$/);
     expect(so.credit.check.requiresApproval).toBe(false);
+    expect(so.billingAddress.state).toBe("Maharashtra");
     const after = (await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder as B2BPurchaseOrder;
-    expect(after).toMatchObject({ status: "APPROVED", salesOrderId: so.id });
+    expect(after).toMatchObject({ status: "CONVERTED", salesOrderId: so.id });
     // the price is frozen: a later rate move does not touch the order
     await createMetalRate({ metalId: w.gold, purity: "22K", ratePerGram: 900_000, effectiveFrom: new Date(Date.now() - 500), source: "MANUAL" } as never);
     expect(((await buyer(`/orders/${so.id}`)).body.order as B2BSalesOrder).totals.total).toBe(BAND.total * 3);
     const snap = (await PriceSnapshotModel.findById(so.lines[0]!.priceSnapshotId).lean())!;
-    expect(snap).toMatchObject({ documentType: "B2B_SALES_ORDER", unitTotal: BAND.total });
+    expect(snap).toMatchObject({ documentType: "B2B_APPROVAL", unitTotal: BAND.total });
     expect((snap.inputs as { channel: string; customerType: string; customerId: string })).toMatchObject({ channel: "B2B", customerType: "B2B", customerId: ctx.customerId });
   });
   it("freezes the sales order and its snapshot: lines, prices and totals can't be edited", async () => {
@@ -440,11 +460,11 @@ describe("quotation and negotiation", () => {
   };
   it("quotes with a percentage concession and a target price, each frozen with the engine's own arithmetic", async () => {
     const po = await submitPo([["BAND-1", 4], ["RING-1-12", 2]]);
-    const q = await quoteFor(po, { lines: [{ sku: "BAND-1", discountPercent: 5, note: "Volume" }, { sku: "RING-1-12", unitTaxable: 2_500_000 }], validDays: 10, terms: "Delivery in 5 days", message: "Best price we can do" });
-    expect(q).toMatchObject({ version: 1, status: "ISSUED", poNo: po.poNo, terms: "Delivery in 5 days" });
+    const q = await quoteFor(po, { lines: [{ sku: "BAND-1", discountPercent: 5, note: "Volume" }, { sku: "RING-1-12", unitTaxable: 2_500_000, note: "Matches a competing quote" }], validDays: 10, terms: "Delivery in 5 days", message: "Best price we can do" });
+    expect(q).toMatchObject({ version: 1, status: "QUOTED", poNo: po.poNo, terms: "Delivery in 5 days" });
     expect(q.quoteNo).toMatch(/^QT-\d{6}$/);
     const band = q.lines.find((l) => l.sku === "BAND-1")!;
-    expect(band.concession).toEqual({ kind: "PERCENT", value: 5, note: "Volume" });
+    expect(band.concession).toEqual({ kind: "PERCENT", value: 5, note: "Volume", listUnitTaxable: 7_150_000 });
     expect(band.unitTaxable).toBe(7_150_000 - 357_500); // 5% of the 7,150,000 subtotal, and GST on what remains
     expect(band.unitGst).toBe(203_776); // CGST and SGST each round 1.5% of 6,792,500 (101,887.5) half away from zero: the engine rounds per component
     expect(q.lines.find((l) => l.sku === "RING-1-12")).toMatchObject({ unitTaxable: 2_500_000, concession: { kind: "TARGET_PRICE", value: 2_500_000 } });
@@ -467,23 +487,28 @@ describe("quotation and negotiation", () => {
   });
   it("refuses a target price above the standard price, a concession for a SKU not on the PO, and both kinds of concession at once", async () => {
     const po = await submitPo([["BAND-1", 2]]);
-    expect((await staffPost(`/purchase-orders/${po.id}/quote`, { lines: [{ sku: "BAND-1", unitTaxable: 9_000_000 }] })).status).toBe(400);
-    expect((await staffPost(`/purchase-orders/${po.id}/quote`, { lines: [{ sku: "RING-1-12", discountPercent: 5 }] })).status).toBe(400);
-    expect((await staffPost(`/purchase-orders/${po.id}/quote`, { lines: [{ sku: "BAND-1", discountPercent: 5, unitTaxable: 6_000_000 }] })).status).toBe(400);
+    expect((await staffPost(`/purchase-orders/${po.id}/quote`, { lines: [{ sku: "BAND-1", unitTaxable: 9_000_000, note: "above list" }] })).status).toBe(400);
+    expect((await staffPost(`/purchase-orders/${po.id}/quote`, { lines: [{ sku: "RING-1-12", discountPercent: 5, note: "not on the PO" }] })).status).toBe(400);
+    expect((await staffPost(`/purchase-orders/${po.id}/quote`, { lines: [{ sku: "BAND-1", discountPercent: 5, unitTaxable: 6_000_000, note: "both at once" }] })).status).toBe(400);
   });
   it("shows the customer the quotation, and lets them accept it — creating the sales order at the QUOTED price, whatever the rate does", async () => {
     const po = await submitPo([["BAND-1", 4]]);
-    const q = await quoteFor(po, { lines: [{ sku: "BAND-1", discountPercent: 10 }] });
+    const q = await quoteFor(po, { lines: [{ sku: "BAND-1", discountPercent: 10, note: "Volume order" }] });
     expect(((await buyer("/quotations")).body.items as B2BQuotation[]).map((x) => x.quoteNo)).toEqual([q.quoteNo]);
     await createMetalRate({ metalId: w.gold, purity: "22K", ratePerGram: 900_000, effectiveFrom: new Date(Date.now() - 500), source: "MANUAL" } as never);
     const res = await buyerPost(`/quotations/${q.id}/accept`);
-    expect(res.status, JSON.stringify(res.body)).toBe(201);
-    const so = res.body.order as B2BSalesOrder;
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // Accepting APPROVES the PO at the quoted prices; the seller then converts it into a sales order.
+    expect(res.body.purchaseOrder).toMatchObject({ status: "APPROVED", approved: { via: "QUOTATION", totals: { total: q.totals.total } } });
+    expect((await buyer(`/quotations/${q.id}`)).body.quotation.status).toBe("APPROVED");
+    const conv = await convert(po);
+    expect(conv.status, JSON.stringify(conv.body)).toBe(201);
+    const so = conv.body.order as B2BSalesOrder;
     expect(so.totals.total).toBe(q.totals.total);
     expect(so.quotationId).toBe(q.id);
     expect(so.lines[0]!.priceSnapshotId).toBe(q.lines[0]!.priceSnapshotId);
-    expect((await buyer(`/quotations/${q.id}`)).body.quotation.status).toBe("ACCEPTED");
-    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("APPROVED");
+    expect((await buyer(`/quotations/${q.id}`)).body.quotation.status).toBe("CONVERTED");
+    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("CONVERTED");
     expect((await buyerPost(`/quotations/${q.id}/accept`)).status).toBe(409);
   });
   it("refuses to accept an expired quotation, and reports it as EXPIRED", async () => {
@@ -495,30 +520,32 @@ describe("quotation and negotiation", () => {
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("QUOTE_EXPIRED");
     expect(await SalesOrderModel.countDocuments()).toBe(0);
+    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("EXPIRED"); // and the PO waiting on it
   });
   it("negotiates: the customer counters, the seller revises, only the latest version can be accepted", async () => {
     const po = await submitPo([["BAND-1", 4]]);
-    const v1 = await quoteFor(po, { lines: [{ sku: "BAND-1", discountPercent: 2 }] });
+    const v1 = await quoteFor(po, { lines: [{ sku: "BAND-1", discountPercent: 2, note: "First offer" }] });
     const counter = await buyerPost(`/quotations/${v1.id}/counter`, { message: "Can you do ₹70,000 a piece?", requestedPrices: [{ sku: "BAND-1", unitTaxable: 7_000_000 }] });
-    expect(counter.body.quotation).toMatchObject({ status: "REVISION_REQUESTED" });
+    expect(counter.body.quotation).toMatchObject({ status: "NEGOTIATION" });
     expect(counter.body.quotation.messages.at(-1)).toMatchObject({ by: "CUSTOMER", requestedPrices: [{ sku: "BAND-1", unitTaxable: 7_000_000 }] });
-    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("NEGOTIATING");
+    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("NEGOTIATION");
     expect((await buyerPost(`/quotations/${v1.id}/accept`)).status).toBe(409); // not while it is being renegotiated
 
-    const v2 = await quoteFor(po, { lines: [{ sku: "BAND-1", unitTaxable: 7_000_000 }], message: "Agreed" });
-    expect(v2).toMatchObject({ version: 2, status: "ISSUED" });
+    const v2 = await quoteFor(po, { lines: [{ sku: "BAND-1", unitTaxable: 7_000_000, note: "Agreed after the counter-offer" }], message: "Agreed" });
+    expect(v2).toMatchObject({ version: 2, status: "QUOTED" });
     expect((await buyer(`/quotations/${v1.id}`)).body.quotation.status).toBe("SUPERSEDED");
     expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder).toMatchObject({ status: "QUOTED", quotationId: v2.id });
     expect((await buyerPost(`/quotations/${v1.id}/accept`)).status).toBe(409);
-    const so = (await buyerPost(`/quotations/${v2.id}/accept`)).body.order as B2BSalesOrder;
+    expect((await buyerPost(`/quotations/${v2.id}/accept`)).status).toBe(200);
+    const so = (await convert(po)).body.order as B2BSalesOrder;
     expect(so.lines[0]!.unitTaxable).toBe(7_000_000);
-    expect(so.history.map((h) => h.status)).toEqual(["APPROVED"]);
+    expect(so.history.map((h) => h.status)).toEqual(["CONFIRMED"]);
   });
   it("lets the customer decline, which ends the PO; and a rejected PO withdraws its open quotation", async () => {
     const po = await submitPo([["BAND-1", 2]]);
     const q = await quoteFor(po);
     expect((await buyerPost(`/quotations/${q.id}/decline`, { reason: "Too dear" })).body.quotation.status).toBe("REJECTED");
-    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("CANCELLED");
+    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("REJECTED"); // declining the quotation ends the PO
     const po2 = await submitPo([["BAND-1", 2]]);
     const q2 = await quoteFor(po2);
     await staffPost(`/purchase-orders/${po2.id}/reject`, { reason: "Changed our mind" });
@@ -533,7 +560,7 @@ describe("quotation and negotiation", () => {
 describe("credit — enforced by the backend, not the screen", () => {
   it("holds an order that would exceed the limit: it is created, but blocked from stock and invoicing until credit is approved", async () => {
     const { order } = await approved([["BAND-1", 14]]);
-    expect(order.status).toBe("PENDING_CREDIT_APPROVAL");
+    expect(order.status).toBe("DRAFT");
     expect(order.credit.check).toMatchObject({ requiresApproval: true, wouldExceedBy: BAND.total * 14 - LIMIT });
     expect(order.credit.check.reasons[0]!.code).toBe("CREDIT_LIMIT_EXCEEDED");
     expect((await staffPost(`/orders/${order.id}/allocate`)).status).toBe(409);
@@ -552,12 +579,12 @@ describe("credit — enforced by the backend, not the screen", () => {
     expect(denied.status).toBe(409);
     expect(denied.body.error.code).toBe("CREDIT_BLOCKED");
     expect(denied.body.error.details.check.reasons[0].action).toMatch(/reduce the order|limit increase/i);
-    expect((await soDoc(order.id))!.status).toBe("PENDING_CREDIT_APPROVAL");
+    expect((await soDoc(order.id))!.status).toBe("DRAFT");
 
     expect((await staffPost(`/orders/${order.id}/approve-credit`, { reason: "short" })).status).toBe(400); // a real reason is required
     const ok = await staffPost(`/orders/${order.id}/approve-credit`, { reason: "Long-standing customer, paying on time" });
     expect(ok.status, JSON.stringify(ok.body)).toBe(200);
-    expect(ok.body.order).toMatchObject({ status: "APPROVED", credit: { override: { reason: "Long-standing customer, paying on time", byName: "Test B2B_MANAGER" } } });
+    expect(ok.body.order).toMatchObject({ status: "CONFIRMED", credit: { override: { reason: "Long-standing customer, paying on time", byName: "Test B2B_MANAGER" } } });
     const log = (await AuditLogModel.findOne({ action: "b2b.credit_overridden" }).lean())!;
     expect(log.metadata).toMatchObject({ reason: "Long-standing customer, paying on time", limit: LIMIT, reasons: ["CREDIT_LIMIT_EXCEEDED"] });
     expect(log.actorEmail).toBeTruthy();
@@ -568,57 +595,61 @@ describe("credit — enforced by the backend, not the screen", () => {
     await createUser({ email: "approver@x.test", name: "Approver", password: PASSWORD, userType: "STAFF", roleIds: [approverOnly.id] } as never, 4);
     tokens.approver = await tokenFor("approver@x.test");
     const po = await submitPo([["BAND-1", 14]]);
-    const res = await staffPost(`/purchase-orders/${po.id}/approve`, { creditOverride: { reason: "I say so, thanks" } }, "approver");
+    await approve(po, "approver");
+    const res = await convert(po, { creditOverride: { reason: "I say so, thanks" } }, "approver");
     expect(res.status).toBe(403);
-    expect((await PurchaseOrderModel.findById(po.id))!.status).toBe("SUBMITTED");
-    const held = await staffPost(`/purchase-orders/${po.id}/approve`, {}, "approver"); // without an override it simply lands on hold
-    expect(held.body.order.status).toBe("PENDING_CREDIT_APPROVAL");
+    expect((await PurchaseOrderModel.findById(po.id))!.status).toBe("APPROVED"); // nothing was converted
+    const held = await convert(po, {}, "approver"); // without an override it simply lands on hold
+    expect(held.body.order.status).toBe("DRAFT");
   });
   it("approves over the limit in one step for someone entitled, recording the override", async () => {
     const po = await submitPo([["BAND-1", 14]]);
-    const res = await staffPost(`/purchase-orders/${po.id}/approve`, { creditOverride: { reason: "Approved by the owner" } });
-    expect(res.body.order).toMatchObject({ status: "APPROVED", credit: { override: { reason: "Approved by the owner" } } });
+    await approve(po);
+    const res = await convert(po, { creditOverride: { reason: "Approved by the owner" } });
+    expect(res.body.order).toMatchObject({ status: "CONFIRMED", credit: { override: { reason: "Approved by the owner" } } });
     expect(await AuditLogModel.countDocuments({ action: "b2b.credit_overridden" })).toBe(1);
   });
   it("counts approved orders that aren't invoiced yet, so ten approvals can't each look fine alone", async () => {
     const a = await approved([["BAND-1", 6]]);
     const b = await approved([["BAND-1", 6]]);
-    expect(a.order.status).toBe("APPROVED");
-    expect(b.order.status).toBe("APPROVED");
+    expect(a.order.status).toBe("CONFIRMED");
+    expect(b.order.status).toBe("CONFIRMED");
     expect(await position()).toMatchObject({ committed: BAND.total * 12, available: LIMIT - BAND.total * 12 });
     const c = await approved([["BAND-1", 2]]);
-    expect(c.order.status).toBe("PENDING_CREDIT_APPROVAL");
+    expect(c.order.status).toBe("DRAFT");
     expect(c.order.credit.check).toMatchObject({ exposureAfter: BAND.total * 14, wouldExceedBy: BAND.total * 14 - LIMIT });
   });
   it("serialises two approvals racing for the same headroom — exactly one gets it", async () => {
     const a = await submitPo([["BAND-1", 8]]);
     const b = await submitPo([["BAND-1", 8]]);
-    const [ra, rb] = await Promise.all([staffPost(`/purchase-orders/${a.id}/approve`), staffPost(`/purchase-orders/${b.id}/approve`)]);
+    await approve(a);
+    await approve(b);
+    const [ra, rb] = await Promise.all([convert(a), convert(b)]);
     expect([ra.status, rb.status]).toEqual([201, 201]);
     const statuses = [ra.body.order.status, rb.body.order.status].sort();
-    expect(statuses).toEqual(["APPROVED", "PENDING_CREDIT_APPROVAL"]);
+    expect(statuses).toEqual(["CONFIRMED", "DRAFT"]);
   });
   it("blocks on a credit hold whatever the headroom, and says so", async () => {
     await staffPatch(`/customers/${ctx.customerId}/profile`, { creditHold: true });
     const { order } = await approved([["BAND-1", 2]]);
-    expect(order.status).toBe("PENDING_CREDIT_APPROVAL");
+    expect(order.status).toBe("DRAFT");
     expect(order.credit.check.reasons.map((r) => r.code)).toEqual(["ACCOUNT_ON_HOLD"]);
     expect((await buyer("/account")).body.account.position.onHold).toBe(true);
   });
   it("blocks on overdue invoices only when the account is set to", async () => {
     const { invoice } = await invoiced([["BAND-1", 2]]);
     await InvoiceModel.collection.updateOne({ invoiceNo: invoice.invoiceNo }, { $set: { dueDate: addDays(businessDay(new Date()), -10) } });
-    expect((await approved([["BAND-1", 2]])).order.status).toBe("APPROVED");
+    expect((await approved([["BAND-1", 2]])).order.status).toBe("CONFIRMED");
     await staffPatch(`/customers/${ctx.customerId}/profile`, { blockOnOverdue: true });
     const held = await approved([["BAND-1", 2]]);
-    expect(held.order.status).toBe("PENDING_CREDIT_APPROVAL");
+    expect(held.order.status).toBe("DRAFT");
     expect(held.order.credit.check.reasons.map((r) => r.code)).toEqual(["OVERDUE_INVOICES"]);
   });
   it("releases a held order without any override once the customer's payment brings them back within terms", async () => {
     const first = await invoiced([["BAND-1", 6]]); // 44,187,000 outstanding
     const second = await approved([["BAND-1", 6]]); // 88,374,000 in total: within the limit
     const third = await approved([["BAND-1", 4]]); // would take exposure to 117.8M — held
-    expect(third.order.status).toBe("PENDING_CREDIT_APPROVAL");
+    expect(third.order.status).toBe("DRAFT");
     // The customer pays the first invoice in full: verified by a second person, then applied.
     const pay = await verifiedPayment(first.invoice.totals.total);
     expect((await staffPost(`/payments/${pay.id}/allocate`, { allocations: [{ invoiceId: first.invoice.id, amount: first.invoice.totals.total }] }, "accountant")).status).toBe(200);
@@ -628,7 +659,7 @@ describe("credit — enforced by the backend, not the screen", () => {
     tokens.approver = await tokenFor("approver@x.test");
     const res = await staffPost(`/orders/${third.order.id}/approve-credit`, { reason: "Customer has paid down the account" }, "approver");
     expect(res.status, JSON.stringify(res.body)).toBe(200);
-    expect(res.body.order.status).toBe("APPROVED");
+    expect(res.body.order.status).toBe("CONFIRMED");
     expect(res.body.order.credit.override).toBeUndefined();
     void second;
   });
@@ -657,14 +688,21 @@ describe("allocation and invoicing", () => {
     expect(await InventoryLedgerModel.countDocuments({ movementType: "RESERVATION" })).toBe(5 + 0);
     expect((await staffPost(`/orders/${order.id}/allocate`)).status).toBe(409); // not twice
   });
-  it("reports short stock line by line, allocates nothing, and lets the order wait", async () => {
+  it("allocates what stock allows and reports the rest line by line: the order is PARTIALLY_ALLOCATED, not refused", async () => {
     const { order } = await approved([["BAND-1", 3], ["RING-1-14", 1]]); // no size 14 in stock
+    const res = await staffPost(`/orders/${order.id}/allocate`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.order).toMatchObject({ status: "PARTIALLY_ALLOCATED", shortfall: [{ sku: "RING-1-14", wanted: 1, available: 0 }] });
+    expect(res.body.order.progress).toEqual([{ sku: "BAND-1", quantity: 3, allocated: 3, invoiced: 0 }, { sku: "RING-1-14", quantity: 1, allocated: 0, invoiced: 0 }]);
+    expect(await InventoryItemModel.countDocuments({ status: "RESERVED" })).toBe(3);
+  });
+  it("refuses with a line-by-line shortfall only when NOTHING can be allocated, and lets the order wait", async () => {
+    const { order } = await approved([["RING-1-14", 1]]);
     const res = await staffPost(`/orders/${order.id}/allocate`);
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe("STOCK_SHORT");
     expect(res.body.error.details.shortfall).toEqual([{ sku: "RING-1-14", name: "Sized Ring", wanted: 1, available: 0 }]);
-    expect(await InventoryItemModel.countDocuments({ status: "RESERVED" })).toBe(0);
-    expect(((await staff(`/orders/${order.id}`)).body.order as B2BSalesOrder)).toMatchObject({ status: "APPROVED", shortfall: [{ sku: "RING-1-14" }] });
+    expect(((await staff(`/orders/${order.id}`)).body.order as B2BSalesOrder)).toMatchObject({ status: "CONFIRMED", shortfall: [{ sku: "RING-1-14" }] });
   });
   it("gives the last pieces to exactly one of two orders allocated at the same moment", async () => {
     const a = await approved([["POR-1", 2]]).catch(() => null);
@@ -683,12 +721,14 @@ describe("allocation and invoicing", () => {
     expect(invoice.taxes).toEqual({ supplyType: "INTRA_STATE", cgst: BAND.gst * 3 / 2, sgst: BAND.gst * 3 / 2, igst: 0 });
     expect(await InventoryItemModel.countDocuments({ status: "SOLD" })).toBe(3);
     expect(await InventoryLedgerModel.countDocuments({ movementType: "SALE" })).toBe(3);
-    expect((await staff(`/orders/${order.id}`)).body.order).toMatchObject({ status: "INVOICED", invoiceId: invoice.id, invoiceNo: invoice.invoiceNo });
+    expect((await staff(`/orders/${order.id}`)).body.order).toMatchObject({ status: "FULFILLED", invoices: [{ id: invoice.id, invoiceNo: invoice.invoiceNo, total: invoice.totals.total }], progress: [{ sku: "BAND-1", quantity: 3, allocated: 0, invoiced: 3 }] });
+    expect(invoice.billingAddress.state).toBe("Maharashtra");
     expect((await staffPost(`/orders/${order.id}/invoice`)).status).toBe(409);
   });
   it("splits GST as IGST for goods shipped out of state — the same total", async () => {
     const po = await submitPo([["BAND-1", 2]], { shippingAddressIndex: 1 });
-    const { body } = await staffPost(`/purchase-orders/${po.id}/approve`);
+    await approve(po);
+    const { body } = await convert(po);
     await staffPost(`/orders/${body.order.id}/allocate`);
     const inv = (await staffPost(`/orders/${body.order.id}/invoice`)).body.invoice as B2BInvoice;
     expect(inv.taxes).toEqual({ supplyType: "INTER_STATE", cgst: 0, sgst: 0, igst: BAND.gst * 2 });
@@ -875,9 +915,380 @@ describe("the portal's dashboard and lists", () => {
   });
   it("lists orders and invoices with their status, and the seller sees every customer's", async () => {
     await invoiced([["BAND-1", 2]]);
-    expect(((await buyer("/orders")).body.items as B2BSalesOrder[])[0]).toMatchObject({ status: "INVOICED" });
+    expect(((await buyer("/orders")).body.items as B2BSalesOrder[])[0]).toMatchObject({ status: "FULFILLED" });
     expect(((await staff("/orders")).body.items as B2BSalesOrder[])).toHaveLength(1);
     expect(((await staff("/invoices", "accountant")).body.items as B2BInvoice[])).toHaveLength(1);
     expect(((await staff("/customers")).body.items as { name: string; position: { outstanding: number } }[]).find((c) => c.name === "Acme Jewellers")!.position.outstanding).toBe(BAND.total * 2);
+  });
+});
+
+// =====================================================================================================
+describe("audit logs — the six events the spec names, with content that matters", () => {
+  const entry = async (action: string) => (await AuditLogModel.findOne({ action }).sort({ _id: -1 }).lean())!;
+
+  it("price override: a target price on a quotation line, with who, why and both numbers", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    const q = await staffPost(`/purchase-orders/${po.id}/quote`, { lines: [{ sku: "BAND-1", unitTaxable: 6_000_000, note: "Matches a competing quote" }] });
+    expect(q.status, JSON.stringify(q.body)).toBe(201);
+    const log = await entry("b2b.price_override");
+    expect(log.metadata).toMatchObject({ sku: "BAND-1", quantity: 2, standardUnitTaxable: BAND.taxable, agreedUnitTaxable: 6_000_000, targetUnitTaxable: 6_000_000, reason: "Matches a competing quote" });
+    expect(log.actorEmail).toBeTruthy();
+    expect(log.targetType).toBe("Quotation");
+    expect(log.targetId).toBe(q.body.quotation.id);
+  });
+
+  it("discount: a percentage concession, with the rate and the resulting per-unit amount", async () => {
+    const po = await submitPo([["BAND-1", 4]]);
+    await staffPost(`/purchase-orders/${po.id}/quote`, { lines: [{ sku: "BAND-1", discountPercent: 5, note: "Volume order" }] });
+    const log = await entry("b2b.discount_applied");
+    expect(log.metadata).toMatchObject({ sku: "BAND-1", discountPercent: 5, standardUnitTaxable: BAND.taxable, reason: "Volume order" });
+    expect((log.metadata as { discountPerUnit: number }).discountPerUnit).toBe(357_500); // 5% of 7,150,000
+  });
+
+  it("approval: both the direct-approve path and the quotation-accept path are audited, each naming who approved and at what total", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    await approve(po);
+    const direct = await entry("b2b.po_approved");
+    expect(direct.metadata).toMatchObject({ poNo: po.poNo, via: "DIRECT", total: BAND.total * 2, by: "SELLER" });
+    expect(direct.actorEmail).toBeTruthy();
+
+    const po2 = await submitPo([["BAND-1", 2]]);
+    const q = await staffPost(`/purchase-orders/${po2.id}/quote`, {});
+    await buyerPost(`/quotations/${q.body.quotation.id}/accept`);
+    const viaQuote = await entry("b2b.po_approved");
+    expect(viaQuote.metadata).toMatchObject({ poNo: po2.poNo, via: "QUOTATION", by: "CUSTOMER" });
+    expect(await AuditLogModel.countDocuments({ action: "b2b.quotation_approved" })).toBe(1);
+  });
+
+  it("rejection: a PO rejected by the seller, and a quotation declined by the customer, each with a reason and who did it", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    await staffPost(`/purchase-orders/${po.id}/reject`, { reason: "Out of our range this season" });
+    const sellerReject = await entry("b2b.po_rejected");
+    expect(sellerReject.metadata).toMatchObject({ poNo: po.poNo, reason: "Out of our range this season", by: "SELLER" });
+
+    const po2 = await submitPo([["BAND-1", 2]]);
+    const q = await staffPost(`/purchase-orders/${po2.id}/quote`, {});
+    await buyerPost(`/quotations/${q.body.quotation.id}/decline`, { reason: "Too dear" });
+    const custDecline = await entry("b2b.quotation_rejected");
+    expect(custDecline.metadata).toMatchObject({ quoteNo: q.body.quotation.quoteNo, reason: "Too dear", by: "CUSTOMER" });
+    expect(await AuditLogModel.countDocuments({ action: "b2b.po_rejected" })).toBe(2); // the PO withdrawal is audited too
+  });
+
+  it("credit override: who overrode, why, the limit and the exact reasons that were overridden", async () => {
+    const po = await submitPo([["BAND-1", 14]]);
+    await approve(po);
+    await convert(po, { creditOverride: { reason: "Approved by the owner, long relationship" } });
+    const log = await entry("b2b.credit_overridden");
+    expect(log.metadata).toMatchObject({ reason: "Approved by the owner, long relationship", limit: LIMIT, reasons: ["CREDIT_LIMIT_EXCEEDED"] });
+    expect(log.actorEmail).toBeTruthy();
+  });
+
+  it("cancellation: a sales order cancelled, with what was released and what had already been invoiced", async () => {
+    const { order } = await approved([["BAND-1", 3]]);
+    await staffPost(`/orders/${order.id}/allocate`);
+    await staffPost(`/orders/${order.id}/cancel`, { reason: "Customer asked" });
+    const log = await entry("b2b.order_cancelled");
+    expect(log.metadata).toMatchObject({ soNo: order.soNo, from: "ALLOCATED", reason: "Customer asked", releasedPieces: 3, invoicedBefore: 0 });
+
+    const po = await submitPo([["BAND-1", 2]]);
+    const cancelled = await staffPost(`/purchase-orders/${po.id}/cancel`, { reason: "Duplicate order" });
+    expect(cancelled.body.purchaseOrder.status).toBe("CANCELLED");
+    const poLog = await entry("b2b.po_cancelled");
+    expect(poLog.metadata).toMatchObject({ poNo: po.poNo, reason: "Duplicate order" });
+  });
+});
+
+describe("attachments — private, content-checked, and scoped to the right party", () => {
+  const pdfBytes = Buffer.concat([Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d]), Buffer.from("1.4 fake pdf body")]);
+  const attach = (path: string, bytes: Buffer, filename: string, who: "acme" | "manager") =>
+    who === "manager"
+      ? request(t.app).post(`/api/b2b${path}`).set(bearer(tokens.manager!)).attach("file", bytes, filename)
+      : request(t.app).post(`/api/portal${path}`).set(bearer(tokens.acme!)).attach("file", bytes, filename);
+
+  it("lets the customer attach a PO document, download it, and remove only their own", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    const up = await attach(`/purchase-orders/${po.id}/attachments`, pdfBytes, "purchase-order.pdf", "acme");
+    expect(up.status, JSON.stringify(up.body)).toBe(201);
+    expect(up.body.attachment).toMatchObject({ name: "purchase-order.pdf", mimeType: "application/pdf", size: pdfBytes.length, uploadedBy: "CUSTOMER" });
+    const attId = up.body.attachment.id as string;
+
+    const dl = await buyer(`/purchase-orders/${po.id}/attachments/${attId}`);
+    expect(dl.status).toBe(200);
+    expect(dl.headers["content-disposition"]).toContain("attachment");
+    expect(dl.headers["x-content-type-options"]).toBe("nosniff");
+    expect(dl.headers["cache-control"]).toContain("no-store");
+    expect(Buffer.from(dl.body as Buffer).equals(pdfBytes)).toBe(true);
+
+    // another customer cannot see or fetch it
+    expect((await buyer(`/purchase-orders/${po.id}`, "globex")).status).toBe(404);
+    expect((await buyer(`/purchase-orders/${po.id}/attachments/${attId}`, "globex")).status).toBe(404);
+
+    const realDelete = await request(t.app).delete(`/api/portal/purchase-orders/${po.id}/attachments/${attId}`).set(bearer(tokens.acme!));
+    expect(realDelete.status).toBe(204);
+    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.attachments).toHaveLength(0);
+  });
+
+  it("won't let one side remove a file the other side uploaded", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    const up = await attach(`/purchase-orders/${po.id}/attachments`, pdfBytes, "customer-po.pdf", "acme");
+    const attId = up.body.attachment.id as string;
+    const sellerTryDelete = await request(t.app).delete(`/api/b2b/purchase-orders/${po.id}/attachments/${attId}`).set(bearer(tokens.manager!));
+    expect(sellerTryDelete.status).toBe(409);
+    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.attachments).toHaveLength(1);
+  });
+
+  it("sniffs real content, never trusting the filename or claimed type — and enforces size and count limits", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    const fake = await attach(`/purchase-orders/${po.id}/attachments`, Buffer.from("not really a pdf"), "invoice.pdf", "acme");
+    expect(fake.status).toBe(400);
+    const empty = await attach(`/purchase-orders/${po.id}/attachments`, Buffer.alloc(0), "empty.pdf", "acme");
+    expect(empty.status).toBe(400);
+    const big = Buffer.concat([Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d]), Buffer.alloc(6 * 1024 * 1024)]);
+    const tooBig = await request(t.app).post(`/api/portal/purchase-orders/${po.id}/attachments`).set(bearer(tokens.acme!)).attach("file", big, "big.pdf");
+    expect([400, 413]).toContain(tooBig.status);
+    for (let i = 0; i < 10; i++) expect((await attach(`/purchase-orders/${po.id}/attachments`, pdfBytes, `f${i}.pdf`, "acme")).status).toBe(201);
+    expect((await attach(`/purchase-orders/${po.id}/attachments`, pdfBytes, "one-too-many.pdf", "acme")).status).toBe(409);
+  });
+
+  it("stops accepting new files once the PO leaves the editable statuses, but a seller may still attach up to APPROVED", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    await approve(po);
+    expect((await attach(`/purchase-orders/${po.id}/attachments`, pdfBytes, "too-late.pdf", "acme")).status).toBe(409);
+    expect((await attach(`/purchase-orders/${po.id}/attachments`, pdfBytes, "seller-note.pdf", "manager")).status).toBe(201);
+  });
+});
+
+describe("draft quotations — prepared before they're shown to the customer", () => {
+  it("saves a draft the customer cannot see, then issues it — or discards it instead", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    const draft = await staffPost(`/purchase-orders/${po.id}/quote`, { lines: [{ sku: "BAND-1", discountPercent: 5, note: "Draft pending manager sign-off" }], issue: false });
+    expect(draft.status, JSON.stringify(draft.body)).toBe(201);
+    expect(draft.body.quotation.status).toBe("DRAFT");
+    expect((await buyer(`/quotations`)).body.items).toHaveLength(0); // not visible yet
+    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("SUBMITTED"); // untouched
+
+    const issued = await staffPost(`/quotations/${draft.body.quotation.id}/issue`);
+    expect(issued.status, JSON.stringify(issued.body)).toBe(200);
+    expect(issued.body.quotation.status).toBe("QUOTED");
+    expect((await buyer(`/quotations`)).body.items).toHaveLength(1);
+    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("QUOTED");
+  });
+
+  it("discards a draft without ever exposing it or touching the PO", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    const draft = await staffPost(`/purchase-orders/${po.id}/quote`, { issue: false });
+    const discarded = await staffPost(`/quotations/${draft.body.quotation.id}/discard`);
+    expect(discarded.status, JSON.stringify(discarded.body)).toBe(200);
+    expect(discarded.body.quotation.status).toBe("REJECTED");
+    expect((await buyer(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("SUBMITTED");
+    expect((await staffPost(`/quotations/${draft.body.quotation.id}/issue`)).status).toBe(409);
+  });
+});
+
+describe("release — giving back stock that was allocated but never invoiced", () => {
+  it("releases held pieces back to available and returns the order to CONFIRMED", async () => {
+    const { order } = await approved([["BAND-1", 3]]);
+    await staffPost(`/orders/${order.id}/allocate`);
+    expect(await InventoryItemModel.countDocuments({ status: "RESERVED" })).toBe(3);
+    const res = await staffPost(`/orders/${order.id}/release`);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.order.status).toBe("CONFIRMED");
+    expect(await InventoryItemModel.countDocuments({ status: "RESERVED" })).toBe(0);
+    expect(await InventoryItemModel.countDocuments({ status: "AVAILABLE", type: "FINISHED_JEWELLERY" })).toBe(18); // every piece from the fixture, none held
+    expect((await staffPost(`/orders/${order.id}/release`)).status).toBe(409); // nothing left to release
+  });
+
+  it("won't release an order that was never allocated", async () => {
+    const { order } = await approved([["BAND-1", 2]]);
+    expect((await staffPost(`/orders/${order.id}/release`)).status).toBe(409);
+  });
+});
+
+describe("partial invoicing — one order, several invoices", () => {
+  it("invoices a chosen subset of the allocated lines, leaving the rest allocated for later", async () => {
+    const { order } = await approved([["BAND-1", 4], ["RING-1-12", 2]]);
+    await staffPost(`/orders/${order.id}/allocate`);
+    const bandLineIndex = order.lines.findIndex((l) => l.sku === "BAND-1");
+    const first = await staffPost(`/orders/${order.id}/invoice`, { lines: [{ lineIndex: bandLineIndex, quantity: 2 }] });
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    expect(first.body.invoice).toMatchObject({ sequence: 1, totals: { total: BAND.total * 2 } });
+    expect(first.body.invoice.lines).toHaveLength(1);
+    const afterFirst = (await staff(`/orders/${order.id}`)).body.order as B2BSalesOrder;
+    expect(afterFirst.status).toBe("PARTIALLY_FULFILLED");
+    expect(afterFirst.invoices).toHaveLength(1);
+    expect(afterFirst.progress.find((p) => p.sku === "BAND-1")).toMatchObject({ quantity: 4, allocated: 2, invoiced: 2 });
+
+    const second = await staffPost(`/orders/${order.id}/invoice`); // the rest, defaulted
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    expect(second.body.invoice.sequence).toBe(2);
+    const afterSecond = (await staff(`/orders/${order.id}`)).body.order as B2BSalesOrder;
+    expect(afterSecond.status).toBe("FULFILLED");
+    expect(afterSecond.invoices).toHaveLength(2);
+    expect(afterSecond.invoices.reduce((s: number, i: { total: number }) => s + i.total, 0)).toBe(afterSecond.totals.total);
+  });
+});
+
+describe("the expiry sweep — quotations and the PO waiting on them", () => {
+  it("expires a stale quotation and the PO in the same pass, and is idempotent", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    const q = await staffPost(`/purchase-orders/${po.id}/quote`, {});
+    await QuotationModel.collection.updateOne({ quoteNo: q.body.quotation.quoteNo }, { $set: { validUntil: new Date(Date.now() - 1000) } });
+    // the lazy "refresh-before-read" pattern means the read itself sweeps stale quotations — no timer needed here.
+    const seen = (await staff(`/quotations/${q.body.quotation.id}`)).body.quotation;
+    expect(seen.status).toBe("EXPIRED");
+    expect((await staff(`/purchase-orders/${po.id}`)).body.purchaseOrder.status).toBe("EXPIRED");
+    expect(await AuditLogModel.countDocuments({ action: "b2b.quotation_expired" })).toBe(1);
+    // reading it again does not re-audit the same expiry
+    await staff(`/quotations/${q.body.quotation.id}`);
+    expect(await AuditLogModel.countDocuments({ action: "b2b.quotation_expired" })).toBe(1);
+  });
+
+  it("does not expire a quotation still under negotiation before its own deadline", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    const q = await staffPost(`/purchase-orders/${po.id}/quote`, { validDays: 10 });
+    expect((await staff(`/quotations/${q.body.quotation.id}`)).body.quotation.status).toBe("QUOTED");
+  });
+});
+
+// =====================================================================================================
+describe("accounting: every completed financial transaction posts a balanced journal entry", () => {
+  const acct = (path: string, who = "accountant") => request(t.app).get(`/api/accounting${path}`).set(bearer(tokens[who]!));
+  const acctPost = (path: string, body: object = {}, who = "accountant") => request(t.app).post(`/api/accounting${path}`).set(bearer(tokens[who]!)).send(body);
+  const line = (entry: { lines: { accountCode: string; direction: string; amount: number }[] }, code: string) => entry.lines.find((l) => l.accountCode === code);
+
+  it("invoicing posts Dr AR / Cr Sales+GST and, from the sold pieces' own book cost, Dr COGS / Cr Inventory", async () => {
+    const { invoice } = await invoiced([["BAND-1", 2]]);
+    const entries = await AccountingEntryModel.find({ referenceType: "SALES_INVOICE", referenceId: invoice.id }).lean();
+    expect(entries).toHaveLength(1);
+    const j = entries[0]!;
+    expect(j.totalDebit).toBe(j.totalCredit); // never anything else — postJournal refuses an unbalanced entry
+    expect(line(j, "1100")).toMatchObject({ direction: "DEBIT", amount: invoice.totals.total }); // Accounts Receivable
+    expect(line(j, "4000")).toMatchObject({ direction: "CREDIT", amount: invoice.totals.taxable }); // Sales (no discount on this order, so gross = taxable)
+    expect(line(j, "2200")).toMatchObject({ direction: "CREDIT", amount: invoice.totals.gst }); // GST Payable
+    expect(line(j, "4900")).toBeUndefined(); // no discount on this order — Discount Given is simply not posted (postJournal drops zero lines)
+    expect(line(j, "5100")).toMatchObject({ direction: "DEBIT", amount: 20000 }); // COGS: 2 pieces at their own book cost of 100_00 each
+    expect(line(j, "1200")).toMatchObject({ direction: "CREDIT", amount: 20000 }); // Inventory reduced by the same cost
+  });
+
+  it("a concession shows up as its own Discount Given line, never invisibly netted into Sales", async () => {
+    const po = await submitPo([["BAND-1", 2]]);
+    const quoteRes = await staffPost(`/purchase-orders/${po.id}/quote`, { validDays: 10, lines: [{ sku: "BAND-1", discountPercent: 10, note: "Loyalty discount" }] });
+    expect(quoteRes.status, JSON.stringify(quoteRes.body)).toBe(201);
+    const accept = await buyerPost(`/quotations/${quoteRes.body.quotation.id}/accept`);
+    expect(accept.status, JSON.stringify(accept.body)).toBe(200);
+    const conv = await convert(po);
+    expect(conv.status, JSON.stringify(conv.body)).toBe(201);
+    const order = (conv.body.order as B2BSalesOrder).id;
+    await staffPost(`/orders/${order}/allocate`);
+    const inv = await staffPost(`/orders/${order}/invoice`);
+    expect(inv.status, JSON.stringify(inv.body)).toBe(201);
+    const invoice = inv.body.invoice as B2BInvoice;
+    const discount = invoice.lines.reduce((s, l) => s + l.lineDiscount, 0);
+    expect(discount).toBeGreaterThan(0);
+    const j = (await AccountingEntryModel.findOne({ referenceType: "SALES_INVOICE", referenceId: invoice.id }).lean())!;
+    expect(line(j, "4900")).toMatchObject({ direction: "DEBIT", amount: discount });
+    expect(line(j, "4000")!.amount).toBe(invoice.totals.taxable + discount); // Sales is credited at the GROSS, pre-discount amount
+    expect(j.totalDebit).toBe(j.totalCredit);
+  });
+
+  it("payment allocation posts Dr Bank / Cr AR for exactly what was applied, and reversal posts the exact opposite", async () => {
+    const { invoice } = await invoiced([["BAND-1", 2]]);
+    const payment = await verifiedPayment(invoice.totals.total);
+    const alloc = await staffPost(`/payments/${payment.id}/allocate`, { allocations: [{ invoiceId: invoice.id, amount: invoice.totals.total }] }, "accountant");
+    expect(alloc.status, JSON.stringify(alloc.body)).toBe(200);
+
+    const received = await AccountingEntryModel.find({ referenceType: "PAYMENT_RECEIVED", referenceId: payment.id }).lean();
+    expect(received).toHaveLength(1);
+    expect(received[0]!.totalDebit).toBe(received[0]!.totalCredit);
+    expect(line(received[0]!, "1020")).toMatchObject({ direction: "DEBIT", amount: invoice.totals.total }); // Bank (NEFT, not cash)
+    expect(line(received[0]!, "1100")).toMatchObject({ direction: "CREDIT", amount: invoice.totals.total }); // AR reduced
+
+    const rev = await staffPost(`/payments/${payment.id}/reverse`, { reason: "Cheque bounced" }, "admin");
+    expect(rev.status, JSON.stringify(rev.body)).toBe(200);
+    const reversal = await AccountingEntryModel.findOne({ referenceType: "PAYMENT_RECEIVED", referenceId: payment.id, journalNo: { $ne: received[0]!.journalNo } }).lean();
+    expect(reversal).toBeTruthy();
+    expect(line(reversal!, "1020")).toMatchObject({ direction: "CREDIT", amount: invoice.totals.total }); // opposite of the original
+    expect(line(reversal!, "1100")).toMatchObject({ direction: "DEBIT", amount: invoice.totals.total });
+    expect(reversal!.totalDebit).toBe(reversal!.totalCredit);
+  });
+
+  it("a cash payment lands in the Cash account, not Bank", async () => {
+    const { invoice } = await invoiced([["BAND-1", 2]]);
+    const recorded = await recordedPayment(invoice.totals.total, "accountant", { method: "CASH", bankName: undefined });
+    const verified = await staffPost(`/payments/${recorded.id}/verify`, {}, "admin");
+    expect(verified.status, JSON.stringify(verified.body)).toBe(200);
+    const payment = verified.body.payment as B2BPayment;
+    await staffPost(`/payments/${payment.id}/allocate`, { allocations: [{ invoiceId: invoice.id, amount: invoice.totals.total }] }, "accountant");
+    const j = (await AccountingEntryModel.findOne({ referenceType: "PAYMENT_RECEIVED", referenceId: payment.id }).lean())!;
+    expect(line(j, "1010")).toMatchObject({ direction: "DEBIT", amount: invoice.totals.total }); // Cash
+    expect(line(j, "1020")).toBeUndefined();
+  });
+
+  it("the receivables dashboard, outstanding list and ageing report agree with the invoice", async () => {
+    const { invoice } = await invoiced([["BAND-1", 2]]);
+    const dash = await acct("/receivables/dashboard");
+    expect(dash.status, JSON.stringify(dash.body)).toBe(200);
+    expect(dash.body.totalOutstanding).toBeGreaterThanOrEqual(invoice.totals.total);
+    expect(dash.body.customersWithOutstanding).toBeGreaterThanOrEqual(1);
+
+    const out = await acct("/receivables/outstanding");
+    expect(out.status).toBe(200);
+    const row = out.body.items.find((i: { invoiceId: string }) => i.invoiceId === invoice.id);
+    expect(row).toMatchObject({ balance: invoice.totals.total, status: "UNPAID" });
+
+    const paid = await verifiedPayment(invoice.totals.total);
+    await staffPost(`/payments/${paid.id}/allocate`, { allocations: [{ invoiceId: invoice.id, amount: invoice.totals.total }] }, "accountant");
+    const out2 = await acct("/receivables/outstanding");
+    expect(out2.body.items.find((i: { invoiceId: string }) => i.invoiceId === invoice.id)).toBeUndefined(); // settled — no longer outstanding
+
+    const ageing = await acct("/receivables/ageing");
+    expect(ageing.status).toBe(200);
+    expect(ageing.body.overall).toHaveProperty("current");
+  });
+
+  it("chart of accounts: a system account's role can't be left without a holder", async () => {
+    const list = await acct("/accounts");
+    expect(list.status, JSON.stringify(list.body)).toBe(200);
+    const ar = list.body.items.find((a: { systemRole?: string }) => a.systemRole === "ACCOUNTS_RECEIVABLE");
+    expect(ar).toBeTruthy();
+    const deactivate = await request(t.app).patch(`/api/accounting/accounts/${ar.id}`).set(bearer(tokens.accountant!)).send({ isActive: false });
+    expect(deactivate.status, JSON.stringify(deactivate.body)).toBe(409);
+    expect(deactivate.body.error.message).toMatch(/only account holding/);
+  });
+
+  it("credit note: reduces AR, debits Sales and GST Payable, and cancellation reverses it", async () => {
+    const { invoice } = await invoiced([["BAND-1", 2]]);
+    const created = await acctPost("/credit-notes", { customerId: ctx.customerId, invoiceId: invoice.id, reason: "SALES_RETURN", taxableValue: invoice.totals.taxable, gst: invoice.totals.gst });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const cn = created.body.creditNote;
+    expect(cn.total).toBe(invoice.totals.taxable + invoice.totals.gst);
+    const j = (await AccountingEntryModel.findOne({ referenceType: "CREDIT_NOTE", referenceId: cn.id }).lean())!;
+    expect(line(j, "1100")).toMatchObject({ direction: "CREDIT", amount: cn.total });
+    expect(line(j, "4000")).toMatchObject({ direction: "DEBIT", amount: invoice.totals.taxable });
+    expect(line(j, "2200")).toMatchObject({ direction: "DEBIT", amount: invoice.totals.gst });
+    expect(j.totalDebit).toBe(j.totalCredit);
+
+    const cancelled = await acctPost(`/credit-notes/${cn.id}/cancel`, { reason: "Issued in error" });
+    expect(cancelled.status, JSON.stringify(cancelled.body)).toBe(200);
+    expect(cancelled.body.creditNote.status).toBe("CANCELLED");
+    const all = await AccountingEntryModel.find({ referenceType: "CREDIT_NOTE", referenceId: cn.id }).lean();
+    expect(all).toHaveLength(2); // the original and its reversal
+    const totalAcrossBoth = all.reduce((s, e) => s + e.totalDebit, 0) - all.reduce((s, e) => s + e.totalCredit, 0);
+    expect(totalAcrossBoth).toBe(0); // net effect of issue + cancel is nothing
+  });
+
+  it("only accounting.manage can write; accounting.view is enough to read", async () => {
+    expect((await acct("/receivables/dashboard", "viewer")).status).toBe(200);
+    expect((await acctPost("/accounts", { code: "9999", name: "Test", type: "ASSET" }, "viewer")).status).toBe(403);
+    expect((await acctPost("/accounts", { code: "9999", name: "Test", type: "ASSET" }, "manager")).status).toBe(403); // B2B_MANAGER has no accounting permission at all
+    expect((await acctPost("/accounts", { code: "9999", name: "Petty Cash Box", type: "ASSET" }, "accountant")).status).toBe(201);
+  });
+
+  it("the trial balance always balances — proof, not just a report", async () => {
+    await invoiced([["BAND-1", 2]]);
+    const tb = await acct("/trial-balance");
+    expect(tb.status, JSON.stringify(tb.body)).toBe(200);
+    expect(tb.body.totalDebit).toBe(tb.body.totalCredit);
+    expect(tb.body.rows.length).toBeGreaterThan(0);
   });
 });

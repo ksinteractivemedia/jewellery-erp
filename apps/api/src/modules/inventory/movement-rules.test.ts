@@ -53,7 +53,7 @@ describe("movement rules", () => {
 
   it("only receipt-style movements and adjustments can create stock", () => {
     const creators = MOVEMENT_TYPES.filter((t) => MOVEMENT_RULES[t].creates);
-    expect(creators.sort()).toEqual(["ADJUSTMENT", "JOBWORK_RECEIPT", "MANUFACTURING_RECEIPT", "PURCHASE_RECEIPT"]);
+    expect(creators.sort()).toEqual(["ADJUSTMENT", "EXCHANGE_IN", "JOBWORK_RECEIPT", "MANUFACTURING_RECEIPT", "PURCHASE_RECEIPT", "REPAIR_INTAKE"]);
   });
 
   it("owned stock excludes exactly SOLD and MELTING", () => {

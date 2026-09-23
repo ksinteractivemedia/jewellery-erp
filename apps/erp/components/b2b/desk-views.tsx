@@ -7,7 +7,7 @@ import { B2B_PAYMENT_METHODS, PERMISSIONS as P } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
 import { b2bApi, useB2BAction, useB2BCustomers, useB2BInvoices, useB2BOrders, useB2BPayments, useB2BQuotations } from "../../lib/api/b2b";
 import { errorMessage } from "../../lib/api/queries";
-import { CreditLine, CreditVerdict, Field, Load, Status, Table, Td, Th, btn, day, inputCls, money, money0, rupeesToPaise } from "./shared";
+import { CreditLine, CreditVerdict, Field, Load, SoStatus, Status, Table, Td, Th, btn, day, inputCls, money, money0, rupeesToPaise } from "./shared";
 
 // ---- customers ---------------------------------------------------------------------------------------
 function TermsEditor({ c, onDone }: { c: B2BCustomerRow; onDone: () => void }) {
@@ -45,46 +45,77 @@ export function CustomersView() {
 }
 
 // ---- quotations --------------------------------------------------------------------------------------
+function DraftQuoteActions({ id, onDone }: { id: string; onDone: () => void }) {
+  const [err, setErr] = React.useState<string>();
+  const issue = useB2BAction(() => b2bApi.issueDraftQuotation(id), "Sent to the customer", onDone);
+  const discard = useB2BAction(() => b2bApi.discardDraftQuotation(id), "Draft discarded", onDone);
+  const onErr = { onError: (e: unknown) => setErr(errorMessage(e)) };
+  return (
+    <span className="flex items-center gap-2">
+      <button className={btn("primary")} disabled={issue.isPending} onClick={() => issue.mutate(undefined, onErr)} data-testid="quote-issue">Send</button>
+      <button className={btn("danger")} disabled={discard.isPending} onClick={() => discard.mutate(undefined, onErr)} data-testid="quote-discard">Discard</button>
+      {err && <span className="text-caption text-danger" role="alert">{err}</span>}
+    </span>
+  );
+}
 export function QuotationsView() {
   const q = useB2BQuotations();
   return (
     <Load q={q}>
-      <Table testId="b2b-quotes"><thead><tr><Th>Quotation</Th><Th>Customer</Th><Th>PO</Th><Th right>Version</Th><Th>Valid until</Th><Th right>Total</Th><Th>Status</Th><Th>Latest message</Th></tr></thead><tbody>
-        {(q.data ?? []).map((x) => <tr key={x.id} data-testid="b2b-quote-row"><Td className="font-medium">{x.quoteNo}</Td><Td>{x.customer.name}</Td><Td>{x.poNo}</Td><Td right>v{x.version}</Td><Td>{day(x.validUntil)}</Td><Td right>{money(x.totals.total)}</Td><Td><Status s={x.status} /></Td><Td className="max-w-xs truncate text-muted">{x.messages.at(-1) ? `${x.messages.at(-1)!.by === "CUSTOMER" ? "Customer: " : "You: "}${x.messages.at(-1)!.text}` : "—"}</Td></tr>)}
+      <Table testId="b2b-quotes"><thead><tr><Th>Quotation</Th><Th>Customer</Th><Th>PO</Th><Th right>Version</Th><Th>Valid until</Th><Th right>Total</Th><Th>Status</Th><Th>Latest message</Th><Th>Actions</Th></tr></thead><tbody>
+        {(q.data ?? []).map((x) => <tr key={x.id} data-testid="b2b-quote-row"><Td className="font-medium">{x.quoteNo}{x.status === "DRAFT" && <span className="ml-1.5 text-caption text-muted">(not sent)</span>}</Td><Td>{x.customer.name}</Td><Td>{x.poNo}</Td><Td right>v{x.version}</Td><Td>{day(x.validUntil)}</Td><Td right>{money(x.totals.total)}</Td><Td><Status s={x.status} /></Td><Td className="max-w-xs truncate text-muted">{x.messages.at(-1) ? `${x.messages.at(-1)!.by === "CUSTOMER" ? "Customer: " : "You: "}${x.messages.at(-1)!.text}` : "—"}</Td><Td>{x.status === "DRAFT" && <DraftQuoteActions id={x.id} onDone={() => q.refetch()} />}</Td></tr>)}
       </tbody></Table>
     </Load>
   );
 }
 
 // ---- orders & credit ---------------------------------------------------------------------------------
+/** Per-line hold/sold progress against what was ordered — the order's status is derived from exactly these numbers. */
+function Progress({ o }: { o: B2BSalesOrder }) {
+  return (
+    <table className="w-full text-caption" data-testid="order-progress"><thead><tr><Th>SKU</Th><Th right>Ordered</Th><Th right>Allocated</Th><Th right>Invoiced</Th></tr></thead><tbody>
+      {o.progress.map((p) => <tr key={p.sku}><Td className="tabular">{p.sku}</Td><Td right>{p.quantity}</Td><Td right>{p.allocated}</Td><Td right>{p.invoiced}</Td></tr>)}
+    </tbody></table>
+  );
+}
 function OrderRow({ o, onDone }: { o: B2BSalesOrder; onDone: () => void }) {
   const { can } = useAuth();
   const [reason, setReason] = React.useState("");
-  const [open, setOpen] = React.useState<"" | "credit" | "cancel">("");
+  const [open, setOpen] = React.useState<"" | "credit" | "cancel" | "progress">("");
   const [err, setErr] = React.useState<string>();
   const done = () => { setOpen(""); setErr(undefined); onDone(); };
   const fail = (e: unknown) => setErr(errorMessage(e));
   const credit = useB2BAction(() => b2bApi.approveCredit(o.id, reason.trim()), "Order approved", done);
   const allocate = useB2BAction(() => b2bApi.allocate(o.id), "Stock allocated", done);
+  const release = useB2BAction(() => b2bApi.release(o.id), "Allocated stock released", done);
   const invoice = useB2BAction(() => b2bApi.invoice(o.id), "Invoice issued", done);
   const cancel = useB2BAction(() => b2bApi.cancelOrder(o.id, reason.trim()), "Order cancelled", done);
   const run = (m: { mutate: (v: undefined, o?: { onError?: (e: unknown) => void }) => void }) => m.mutate(undefined, { onError: fail });
   const approver = can(P.B2B_APPROVE_PO);
+  const canAllocate = ["CONFIRMED", "PARTIALLY_ALLOCATED"].includes(o.status);
+  const canRelease = ["PARTIALLY_ALLOCATED", "ALLOCATED"].includes(o.status);
+  const canInvoice = ["PARTIALLY_ALLOCATED", "ALLOCATED", "PARTIALLY_FULFILLED"].includes(o.status);
+  const canCancel = !["FULFILLED", "CANCELLED"].includes(o.status);
   return (
     <>
-      <tr data-testid="b2b-order-row"><Td className="font-medium">{o.soNo}</Td><Td>{o.customer.name}</Td><Td className="text-muted">{o.customerPoRef ?? o.poNo}</Td><Td right>{money(o.totals.total)}</Td><Td><Status s={o.status} />{o.credit.override && <span className="ml-2 text-caption text-muted" title={o.credit.override.reason}>override</span>}</Td>
+      <tr data-testid="b2b-order-row"><Td className="font-medium">{o.soNo}</Td><Td>{o.customer.name}</Td><Td className="text-muted">{o.customerPoRef ?? o.poNo}</Td><Td right>{money(o.totals.total)}</Td><Td><SoStatus s={o.status} />{o.credit.override && <span className="ml-2 text-caption text-muted" title={o.credit.override.reason}>override</span>}{o.invoices.length > 0 && <span className="ml-2 text-caption text-muted">{o.invoices.length} invoice{o.invoices.length > 1 ? "s" : ""}</span>}</Td>
         <Td>
-          {approver && o.status === "PENDING_CREDIT_APPROVAL" && <button className={btn("primary")} onClick={() => setOpen("credit")} data-testid="order-approve-credit">Approve credit…</button>}
-          {approver && o.status === "APPROVED" && <button className={btn("primary")} onClick={() => run(allocate)} data-testid="order-allocate">Allocate stock</button>}
-          {approver && o.status === "ALLOCATED" && <button className={btn("primary")} onClick={() => run(invoice)} data-testid="order-invoice">Issue invoice</button>}
-          {approver && ["PENDING_CREDIT_APPROVAL", "APPROVED", "ALLOCATED"].includes(o.status) && <button className={`${btn("danger")} ml-2`} onClick={() => setOpen("cancel")} data-testid="order-cancel">Cancel</button>}
+          <span className="flex flex-wrap items-center gap-2">
+            {approver && o.status === "DRAFT" && <button className={btn("primary")} onClick={() => setOpen("credit")} data-testid="order-approve-credit">Approve credit…</button>}
+            {approver && canAllocate && <button className={btn("primary")} onClick={() => run(allocate)} data-testid="order-allocate">Allocate stock</button>}
+            {approver && canRelease && <button className={btn()} onClick={() => run(release)} data-testid="order-release">Release</button>}
+            {approver && canInvoice && <button className={btn("primary")} onClick={() => run(invoice)} data-testid="order-invoice">Invoice allocated</button>}
+            {(o.progress.length > 0) && <button className={btn()} onClick={() => setOpen(open === "progress" ? "" : "progress")} data-testid="order-progress-toggle">Progress</button>}
+            {approver && canCancel && <button className={btn("danger")} onClick={() => setOpen("cancel")} data-testid="order-cancel">Cancel</button>}
+          </span>
         </Td></tr>
       {(open || err || o.shortfall?.length) && (
         <tr><td colSpan={6} className="border-b border-border-subtle bg-surface-sunken px-3 py-3">
-          {o.status === "PENDING_CREDIT_APPROVAL" && <div className="mb-2"><CreditVerdict check={{ ...o.credit.check, requiresApproval: true }} /></div>}
+          {o.status === "DRAFT" && <div className="mb-2"><CreditVerdict check={{ ...o.credit.check, requiresApproval: true }} /></div>}
           {!!o.shortfall?.length && <p className="mb-2 text-body-sm text-warning" data-testid="shortfall">Short of stock: {o.shortfall.map((s) => `${s.sku} (need ${s.wanted}, have ${s.available})`).join("; ")}</p>}
           {err && <p className="mb-2 text-body-sm text-danger" role="alert" data-testid="order-error">{err}</p>}
-          {open && <div className="flex flex-wrap items-end gap-2"><Field label={open === "credit" ? "Reason (min 10 characters). If the account is still over terms this needs the credit-override permission." : "Reason"}><input className={`${inputCls} w-[28rem] max-w-full`} value={reason} onChange={(e) => setReason(e.target.value)} data-testid="order-reason" /></Field><button className={btn(open === "cancel" ? "danger" : "primary")} disabled={open === "credit" ? reason.trim().length < 10 : !reason.trim()} onClick={() => run(open === "credit" ? credit : cancel)} data-testid="order-go">{open === "credit" ? "Approve" : "Cancel order"}</button><button className={btn()} onClick={() => { setOpen(""); setErr(undefined); }}>Close</button></div>}
+          {open === "progress" && <Progress o={o} />}
+          {(open === "credit" || open === "cancel") && <div className="flex flex-wrap items-end gap-2"><Field label={open === "credit" ? "Reason (min 10 characters). If the account is still over terms this needs the credit-override permission." : "Reason"}><input className={`${inputCls} w-[28rem] max-w-full`} value={reason} onChange={(e) => setReason(e.target.value)} data-testid="order-reason" /></Field><button className={btn(open === "cancel" ? "danger" : "primary")} disabled={open === "credit" ? reason.trim().length < 10 : !reason.trim()} onClick={() => run(open === "credit" ? credit : cancel)} data-testid="order-go">{open === "credit" ? "Approve" : "Cancel order"}</button><button className={btn()} onClick={() => { setOpen(""); setErr(undefined); }}>Close</button></div>}
         </td></tr>
       )}
     </>
@@ -92,10 +123,10 @@ function OrderRow({ o, onDone }: { o: B2BSalesOrder; onDone: () => void }) {
 }
 export function CreditOrdersView() {
   const q = useB2BOrders();
-  const [g, setG] = React.useState("PENDING_CREDIT_APPROVAL");
+  const [g, setG] = React.useState("DRAFT");
   const items = (q.data ?? []).filter((o) => !g || g.split(",").includes(o.status));
-  const held = (q.data ?? []).filter((o) => o.status === "PENDING_CREDIT_APPROVAL").length;
-  const tabs: [string, string][] = [["PENDING_CREDIT_APPROVAL", `Held for credit (${held})`], ["APPROVED,ALLOCATED", "To allocate / invoice"], ["INVOICED", "Invoiced"], ["", "All"]];
+  const held = (q.data ?? []).filter((o) => o.status === "DRAFT").length;
+  const tabs: [string, string][] = [["DRAFT", `Held for credit (${held})`], ["CONFIRMED,PARTIALLY_ALLOCATED,ALLOCATED,PARTIALLY_FULFILLED", "To allocate / invoice"], ["FULFILLED", "Fulfilled"], ["", "All"]];
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter">{tabs.map(([v, l]) => <button key={l} role="tab" aria-selected={g === v} className={`h-8 rounded-full border px-3 text-caption ${g === v ? "border-foreground bg-foreground text-background" : "border-border bg-surface"}`} onClick={() => setG(v)} data-testid={`tab-${v || "all"}`}>{l}</button>)}</div>

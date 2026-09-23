@@ -38,6 +38,7 @@ import { ApiError } from "../../lib/auth/api-client";
 import { useAuth } from "../../lib/auth/auth-context";
 import { LOCATION_TYPE_LABELS, rupees, shortId } from "../../lib/inventory/format";
 import { operationsFor, type OperationSpec } from "../../lib/inventory/operations";
+import { HallmarkingHistory } from "../hallmarking/hallmarking-history";
 import { AdjustDialog } from "./adjust-dialog";
 import { AuditHistory } from "./audit-history";
 import { IdentifiersDialog } from "./identifiers-dialog";
@@ -158,12 +159,16 @@ export function ItemDetailView({ id }: { id: string }) {
 
           <Card>
             <CardHeader><CardTitle>Purity &amp; hallmark</CardTitle></CardHeader>
-            <CardContent>
+            <CardContent className="flex flex-col gap-4">
               <dl className="grid grid-cols-2 gap-4">
                 <Fact label="Metal">{item.metal.name}</Fact>
                 <Fact label="Purity">{item.purity} <span className="text-caption text-muted">(fineness {item.fineness})</span></Fact>
                 <Fact label="HUID"><HUIDDisplay huid={item.huid} hallmarkingStatus={item.hallmarkStatus} /></Fact>
               </dl>
+              <div className="border-t border-border-subtle pt-4">
+                <p className="pb-2 text-caption font-semibold uppercase tracking-wide text-muted">Hallmarking history</p>
+                <HallmarkingHistory itemId={item.id} />
+              </div>
             </CardContent>
           </Card>
 

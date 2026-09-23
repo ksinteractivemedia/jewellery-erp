@@ -17,14 +17,18 @@ export const lineView = (l: LineAttrs): B2BLine => ({
   ...(l.variantLabel ? { variantLabel: l.variantLabel } : {}),
   quantity: l.quantity,
   ...(l.priceOnRequest ? { priceOnRequest: true } : {}),
+  unitMaking: l.unitMaking ?? 0,
+  unitDiscount: l.unitDiscount ?? 0,
   unitTaxable: l.unitTaxable,
   unitGst: l.unitGst,
   unitTotal: l.unitTotal,
+  lineMaking: l.lineMaking ?? 0,
+  lineDiscount: l.lineDiscount ?? 0,
   lineTaxable: l.lineTaxable,
   lineGst: l.lineGst,
   lineTotal: l.lineTotal,
   ...(l.basis ? { basis: l.basis as B2BLine["basis"] } : {}),
-  ...(l.concession ? { concession: { kind: l.concession.kind, value: l.concession.value, ...(l.concession.note ? { note: l.concession.note } : {}) } } : {}),
+  ...(l.concession ? { concession: { kind: l.concession.kind, value: l.concession.value, ...(l.concession.note ? { note: l.concession.note } : {}), ...(l.concession.listUnitTaxable !== undefined ? { listUnitTaxable: l.concession.listUnitTaxable } : {}) } } : {}),
   ...(l.priceSnapshotId ? { priceSnapshotId: id(l.priceSnapshotId) } : {}),
 });
 const historyView = (h: HistoryAttrs): B2BHistoryEntry => ({ status: h.status, at: iso(h.at)!, by: h.by, ...(h.actorName ? { actorName: h.actorName } : {}), ...(h.note ? { note: h.note } : {}) });
@@ -39,8 +43,11 @@ export const poView = (d: WithId<PurchaseOrderAttrs>): B2BPurchaseOrder => ({
   lines: d.lines.map(lineView),
   totals: { taxable: d.totals.taxable, gst: d.totals.gst, total: d.totals.total, complete: d.totals.complete },
   shippingAddress: addressView(d.shippingAddress),
+  billingAddress: addressView(d.billingAddress ?? d.shippingAddress),
   ...(d.notes ? { notes: d.notes } : {}),
   ...(d.requestedDeliveryDate ? { requestedDeliveryDate: d.requestedDeliveryDate } : {}),
+  attachments: (d.attachments ?? []).map((a) => ({ id: docId(a as never), name: a.name, mimeType: a.mimeType, size: a.size, uploadedAt: iso(a.uploadedAt)!, uploadedBy: a.uploadedBy, ...(a.uploadedByName ? { uploadedByName: a.uploadedByName } : {}) })),
+  ...(d.approved?.lines?.length ? { approved: { lines: d.approved.lines.map(lineView), totals: { taxable: d.approved.totals.taxable, gst: d.approved.totals.gst, total: d.approved.totals.total, complete: d.approved.totals.complete }, approvedAt: iso(d.approved.approvedAt)!, ...(d.approved.approvedByName ? { approvedByName: d.approved.approvedByName } : {}), via: d.approved.via } } : {}),
   ...(d.credit ? { credit: d.credit as CreditCheck } : {}),
   ...(d.quotationId ? { quotationId: id(d.quotationId) } : {}),
   ...(d.salesOrderId ? { salesOrderId: id(d.salesOrderId) } : {}),
@@ -57,7 +64,7 @@ export const quotationView = (d: WithId<QuotationAttrs>, ctx: { poNo: string; cu
   poNo: ctx.poNo,
   customer: { id: id(d.customerId), name: ctx.customerName },
   // An issued quotation past its validity is EXPIRED — decided when it is read and enforced when it is accepted.
-  status: d.status === "ISSUED" && d.validUntil <= ctx.now ? "EXPIRED" : d.status,
+  status: (d.status === "QUOTED" || d.status === "NEGOTIATION") && d.validUntil <= ctx.now ? "EXPIRED" : d.status,
   lines: d.lines.map(lineView),
   totals: { taxable: d.totals.taxable, gst: d.totals.gst, total: d.totals.total, complete: d.totals.complete },
   validUntil: iso(d.validUntil)!,
@@ -66,7 +73,7 @@ export const quotationView = (d: WithId<QuotationAttrs>, ctx: { poNo: string; cu
   issuedAt: iso(d.issuedAt)!,
 });
 
-export const salesOrderView = (d: WithId<SalesOrderAttrs>, invoiceNo?: string): B2BSalesOrder => {
+export const salesOrderView = (d: WithId<SalesOrderAttrs>, invoices: { id: string; invoiceNo: string; total: number }[] = []): B2BSalesOrder => {
   const credit = d.credit as { check: CreditCheck; override?: { reason: string; at: Date; byName?: string } };
   return {
     id: docId(d),
@@ -78,13 +85,14 @@ export const salesOrderView = (d: WithId<SalesOrderAttrs>, invoiceNo?: string): 
     customer: { id: id(d.customerId), name: d.customerName },
     status: d.status,
     lines: d.lines.map(lineView),
+    progress: d.lines.map((l, i) => ({ sku: l.sku, quantity: l.quantity, allocated: d.allocations.find((a) => a.lineIndex === i)?.itemIds.length ?? 0, invoiced: d.invoiced.find((x) => x.lineIndex === i)?.quantity ?? 0 })),
     totals: { taxable: d.totals.taxable, gst: d.totals.gst, total: d.totals.total, complete: d.totals.complete },
     shippingAddress: addressView(d.shippingAddress),
+    billingAddress: addressView(d.billingAddress ?? d.shippingAddress),
     credit: { check: credit.check, ...(credit.override ? { override: { reason: credit.override.reason, at: iso(credit.override.at)!, ...(credit.override.byName ? { byName: credit.override.byName } : {}) } } : {}) },
     ...(d.shortfall ? { shortfall: d.shortfall as B2BSalesOrder["shortfall"] } : {}),
     ...(d.allocatedAt ? { allocatedAt: iso(d.allocatedAt)! } : {}),
-    ...(d.invoiceId ? { invoiceId: id(d.invoiceId) } : {}),
-    ...(invoiceNo ? { invoiceNo } : {}),
+    invoices,
     history: d.history.map(historyView),
     createdAt: iso(d.createdAt)!,
   };
@@ -118,6 +126,7 @@ export function invoiceView(d: WithId<InvoiceAttrs>, paid: number, allocations: 
   return {
     id: docId(d),
     invoiceNo: d.invoiceNo,
+    sequence: d.sequence,
     salesOrderId: id(d.salesOrderId),
     soNo: d.soNo,
     customer: { id: id(d.customerId), name: d.customerName, ...(d.gstin ? { gstin: d.gstin } : {}) },
@@ -127,6 +136,7 @@ export function invoiceView(d: WithId<InvoiceAttrs>, paid: number, allocations: 
     totals: { taxable: d.totals.taxable, gst: d.totals.gst, total: d.totals.total, complete: true },
     taxes: { supplyType: d.taxes.supplyType, cgst: d.taxes.cgst, sgst: d.taxes.sgst, igst: d.taxes.igst },
     shippingAddress: addressView(d.shippingAddress),
+    billingAddress: addressView(d.billingAddress ?? d.shippingAddress),
     paid,
     balance: Math.max(d.totals.total - paid, 0),
     status: invoiceStatus({ total: d.totals.total, paid, dueDate: d.dueDate, today, cancelled: d.status === "CANCELLED" }),

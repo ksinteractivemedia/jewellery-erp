@@ -1,0 +1,61 @@
+"use client";
+
+import * as React from "react";
+import { Alert, Badge, Skeleton, cn } from "@jewellery/ui";
+import { errorMessage } from "../../lib/api/queries";
+import { useInventoryList } from "../../lib/api/inventory-queries";
+
+export const day = (v: string) => new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+export const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+export const grams = (g?: number) => (g === undefined ? "—" : `${g.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")} g`);
+
+type Variant = "neutral" | "success" | "warning" | "danger" | "info";
+const TONES: Record<string, Variant> = {
+  REQUESTED: "neutral", APPROVED: "info", REJECTED: "danger", RECEIVED: "warning", INSPECTED: "info", SETTLED: "success", CANCELLED: "neutral",
+};
+export const Status = ({ s }: { s: string }) => <Badge variant={TONES[s] ?? "neutral"} data-testid="status">{s.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase())}</Badge>;
+
+export const Th = ({ children, right }: { children?: React.ReactNode; right?: boolean }) => <th className={cn("whitespace-nowrap border-b border-border bg-surface-sunken px-3 py-2 text-caption font-semibold uppercase tracking-wide text-muted", right ? "text-right" : "text-left")}>{children}</th>;
+export const Td = ({ children, right, className }: { children?: React.ReactNode; right?: boolean; className?: string }) => <td className={cn("border-b border-border-subtle px-3 py-2.5 align-middle text-body-sm", right && "text-right tabular", className)}>{children}</td>;
+export const Table = ({ children, testId }: { children: React.ReactNode; testId?: string }) => <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface"><table className="w-full border-collapse" data-testid={testId}>{children}</table></div>;
+
+export function Load({ q, children, rows = 5 }: { q: { isLoading: boolean; isError: boolean; error: unknown; refetch: () => unknown }; children: React.ReactNode; rows?: number }) {
+  if (q.isLoading) return <div className="flex flex-col gap-2">{Array.from({ length: rows }, (_, i) => <Skeleton key={i} className="h-10" />)}</div>;
+  if (q.isError) return <Alert variant="danger" title="Couldn't load this">{errorMessage(q.error)} <button className="underline" onClick={() => q.refetch()}>Retry</button></Alert>;
+  return <>{children}</>;
+}
+
+export const Field = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="flex flex-col gap-1 text-caption font-medium text-muted">{label}{children}</label>;
+export const inputCls = "h-9 rounded-md border border-border bg-surface px-3 text-body-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+export const btn = (kind: "primary" | "outline" | "danger" = "outline") => cn("inline-flex h-9 items-center justify-center gap-2 rounded-md px-3.5 text-body-sm font-medium transition-colors disabled:opacity-50", kind === "primary" && "bg-primary text-[var(--palette-black)] hover:bg-primary-hover", kind === "outline" && "border border-border bg-surface hover:border-foreground", kind === "danger" && "border border-danger text-danger hover:bg-danger-subtle");
+
+/**
+ * Picks whole SOLD pieces — a return/repair always ties to the exact InventoryItem an order sold,
+ * never just a SKU. The server is the real check (an item not actually sold on the given order is
+ * refused); this only narrows what a person can even click.
+ */
+export function SoldItemPicker({ selected, onChange, multiple = true }: { selected: string[]; onChange: (ids: string[]) => void; multiple?: boolean }) {
+  const [q, setQ] = React.useState("");
+  const list = useInventoryList({ status: ["SOLD"], ...(q ? { q } : {}), pageSize: 25, sort: "updatedAt", order: "desc" } as never);
+  const items = (list.data as { items?: { id: string; itemCode: string; type: string; grossWeight: number; purity: string; huid?: string; location: { name: string } }[] } | undefined)?.items ?? [];
+  const toggle = (id: string) => onChange(multiple ? (selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]) : selected.includes(id) ? [] : [id]);
+  return (
+    <div className="flex flex-col gap-2" data-testid="sold-item-picker">
+      <Field label="Search sold pieces (item code or HUID)"><input className={inputCls} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Item code or HUID…" data-testid="item-picker-search" /></Field>
+      <Table><thead><tr><Th></Th><Th>Item</Th><Th>Type</Th><Th>Purity</Th><Th right>Gross wt</Th><Th>HUID</Th></tr></thead><tbody>
+        {items.map((i) => (
+          <tr key={i.id} className="cursor-pointer hover:bg-surface-sunken" onClick={() => toggle(i.id)} data-testid="item-picker-row">
+            <Td><input type={multiple ? "checkbox" : "radio"} checked={selected.includes(i.id)} onChange={() => toggle(i.id)} aria-label={`Select ${i.itemCode}`} /></Td>
+            <Td className="font-medium tabular">{i.itemCode}</Td>
+            <Td>{i.type.replace(/_/g, " ")}</Td>
+            <Td>{i.purity}</Td>
+            <Td right>{grams(i.grossWeight)}</Td>
+            <Td className="font-mono">{i.huid ?? "—"}</Td>
+          </tr>
+        ))}
+        {items.length === 0 && !list.isLoading && <tr><td colSpan={6} className="border-b border-border-subtle px-3 py-2.5 text-body-sm text-muted">No sold piece matches.</td></tr>}
+      </tbody></Table>
+      {selected.length > 0 && <p className="text-caption text-muted">{selected.length} item{selected.length > 1 ? "s" : ""} selected</p>}
+    </div>
+  );
+}

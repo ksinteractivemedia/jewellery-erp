@@ -11,14 +11,16 @@ export const TONE_CLASS: Record<Tone, string> = {
 
 export const PO_LABEL: Record<PurchaseOrderStatus, [string, Tone]> = {
   DRAFT: ["Draft", "neutral"], SUBMITTED: ["Submitted", "info"], UNDER_REVIEW: ["In review", "info"], QUOTED: ["Quoted", "warn"],
-  NEGOTIATING: ["Negotiating", "warn"], APPROVED: ["Approved", "good"], REJECTED: ["Rejected", "bad"], CANCELLED: ["Cancelled", "neutral"],
+  NEGOTIATION: ["Negotiating", "warn"], APPROVED: ["Approved", "good"], REJECTED: ["Rejected", "bad"], EXPIRED: ["Expired", "bad"],
+  CONVERTED: ["Order placed", "good"], CANCELLED: ["Cancelled", "neutral"],
 };
 export const QUOTE_LABEL: Record<QuotationStatus, [string, Tone]> = {
-  ISSUED: ["Awaiting your answer", "warn"], ACCEPTED: ["Accepted", "good"], REVISION_REQUESTED: ["Revision requested", "info"],
-  SUPERSEDED: ["Superseded", "neutral"], REJECTED: ["Declined", "bad"], EXPIRED: ["Expired", "bad"],
+  DRAFT: ["Being prepared", "neutral"], QUOTED: ["Awaiting your answer", "warn"], NEGOTIATION: ["Negotiating", "warn"], APPROVED: ["Accepted", "good"],
+  SUPERSEDED: ["Superseded", "neutral"], REJECTED: ["Declined", "bad"], EXPIRED: ["Expired", "bad"], CONVERTED: ["Order placed", "good"],
 };
 export const SO_LABEL: Record<SalesOrderStatus, [string, Tone]> = {
-  PENDING_CREDIT_APPROVAL: ["Held — credit approval", "bad"], APPROVED: ["Approved", "info"], ALLOCATED: ["Stock allocated", "info"], INVOICED: ["Invoiced", "good"], CANCELLED: ["Cancelled", "neutral"],
+  DRAFT: ["Held — credit approval", "bad"], CONFIRMED: ["Confirmed", "info"], PARTIALLY_ALLOCATED: ["Stock partly allocated", "info"],
+  ALLOCATED: ["Stock allocated", "info"], PARTIALLY_FULFILLED: ["Partly invoiced", "info"], FULFILLED: ["Fulfilled", "good"], CANCELLED: ["Cancelled", "neutral"],
 };
 export const INVOICE_LABEL: Record<InvoicePaymentStatus, [string, Tone]> = {
   UNPAID: ["Unpaid", "warn"], PARTIALLY_PAID: ["Part paid", "info"], PAID: ["Paid", "good"], OVERDUE: ["Overdue", "bad"], CANCELLED: ["Cancelled", "neutral"],
@@ -31,21 +33,27 @@ export const BASIS_LABEL: Record<string, string> = { CUSTOMER: "Your special pri
 
 export interface Step { label: string; state: "done" | "current" | "todo" | "blocked"; note?: string }
 
+const PO_DEAD = ["REJECTED", "EXPIRED", "CANCELLED"];
 /**
- * Where an order stands, as a row of steps: PO → quotation (only if there was one) → approval → stock → invoice → payment. Everything
- * shown is read from the documents — this only arranges it.
+ * Where an order stands, as a row of steps: PO → quotation (only if there was one) → approved → order placed → stock → invoice →
+ * payment. Everything shown is read from the documents — this only arranges it.
  */
 export function orderSteps(o: { po?: Pick<B2BPurchaseOrder, "status">; quoted: boolean; order?: Pick<B2BSalesOrder, "status">; invoice?: { status: InvoicePaymentStatus } }): Step[] {
   const so = o.order?.status;
+  const poStatus = o.po?.status;
+  const poApproved = poStatus === "APPROVED" || poStatus === "CONVERTED";
+  const poDead = !!poStatus && PO_DEAD.includes(poStatus);
   const steps: Step[] = [{ label: "Purchase order", state: "done" }];
   if (o.quoted) steps.push({ label: "Quotation", state: "done" });
-  if (!so) steps.push({ label: "Seller review", state: o.po?.status === "REJECTED" || o.po?.status === "CANCELLED" ? "blocked" : "current" });
-  else steps.push({ label: so === "PENDING_CREDIT_APPROVAL" ? "Credit approval" : "Approved", state: so === "PENDING_CREDIT_APPROVAL" ? "blocked" : "done", ...(so === "PENDING_CREDIT_APPROVAL" ? { note: "Waiting for our credit team" } : {}) });
-  const past = (s: SalesOrderStatus) => !!so && (so === "INVOICED" || (s === "ALLOCATED" && so === "ALLOCATED"));
-  steps.push({ label: "Stock allocated", state: past("ALLOCATED") ? "done" : so === "APPROVED" ? "current" : "todo" });
-  steps.push({ label: "Invoiced", state: so === "INVOICED" ? "done" : so === "ALLOCATED" ? "current" : "todo" });
+  steps.push({ label: "Approved", state: poApproved ? "done" : poDead ? "blocked" : "current" });
+  if (!so) steps.push({ label: "Order placed", state: poApproved ? "current" : "todo" });
+  else steps.push({ label: so === "DRAFT" ? "Credit approval" : "Order placed", state: so === "DRAFT" ? "blocked" : "done", ...(so === "DRAFT" ? { note: "Waiting for our credit team" } : {}) });
+  const stockDone = !!so && !["DRAFT", "CONFIRMED"].includes(so);
+  const fulfilled = so === "FULFILLED";
+  steps.push({ label: "Stock allocated", state: stockDone ? "done" : so === "CONFIRMED" ? "current" : "todo" });
+  steps.push({ label: "Invoiced", state: fulfilled ? "done" : so === "PARTIALLY_FULFILLED" ? "current" : stockDone ? "current" : "todo" });
   const inv = o.invoice?.status;
   steps.push({ label: "Paid", state: inv === "PAID" ? "done" : inv ? "current" : "todo", ...(inv === "OVERDUE" ? { note: "Overdue" } : {}) });
-  if (so === "CANCELLED") steps.forEach((s) => (s.state = s.state === "done" ? "done" : "blocked"));
+  if (so === "CANCELLED" || poDead) steps.forEach((s) => (s.state = s.state === "done" ? "done" : "blocked"));
   return steps;
 }

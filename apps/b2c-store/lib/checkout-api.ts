@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { StoreCartLineInput, StoreCheckoutVerification, StoreOrder, StorePaymentStart } from "@jewellery/types";
+import type { Return, StoreCartLineInput, StoreCheckoutVerification, StoreOrder, StorePaymentStart } from "@jewellery/types";
 import { storeGetAuthed, storePost } from "./api";
 import { toVerifyBody } from "./checkout";
 
@@ -16,10 +16,23 @@ export const verifyPayment = (orderNo: string, token: string, paymentId: string,
 export const cancelPayment = (orderNo: string, token: string, paymentId: string) => storePost<{ order: StoreOrder }>(`/orders/${orderNo}/payments/${paymentId}/cancel`, {}, auth(token));
 export const cancelOrder = (orderNo: string, token: string, reason?: string) => storePost<{ order: StoreOrder }>(`/orders/${orderNo}/cancel`, reason ? { reason } : {}, auth(token));
 
+export const requestReturn = (orderNo: string, token: string, lineRefs: string[], reason: string, reasonNote?: string) =>
+  storePost<{ return: Return }>(`/orders/${orderNo}/returns`, { lineRefs, reason, ...(reasonNote ? { reasonNote } : {}) }, auth(token)).then((r) => r.return);
+
 export const checkoutKeys = {
   verify: (body: object) => ["store", "checkout-verify", body] as const,
   order: (orderNo: string) => ["store", "order", orderNo] as const,
+  returns: (orderNo: string) => ["store", "order-returns", orderNo] as const,
 };
+
+/** Every return this order has, newest first — polled while one is still moving through its own workflow. */
+export const useOrderReturns = (orderNo: string, token: string | null) =>
+  useQuery({
+    queryKey: checkoutKeys.returns(orderNo),
+    queryFn: async () => (await storeGetAuthed<{ items: Return[] }>(`/orders/${orderNo}/returns`, token!)).items,
+    enabled: !!token,
+    staleTime: 0,
+  });
 
 /** The backend's recalculation of the bag. Never served from cache for long: a price is a moment in time. */
 export const useCheckoutVerification = (lines: StoreCartLineInput[], state: string | undefined, deliveryCode: string | undefined, enabled: boolean) => {

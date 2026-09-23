@@ -6,6 +6,7 @@ import { createApp, type AppDeps } from "../src/http/app";
 import { createMemoryStorage } from "../src/modules/media/storage";
 import { InMemoryEmailSender } from "../src/modules/auth/email";
 import { syncRbac } from "../src/modules/auth/rbac/rbac-sync";
+import { syncChartOfAccounts } from "../src/modules/accounting/chart-of-accounts.service";
 import { RoleModel } from "../src/modules/auth/role.model";
 import { createUser } from "../src/modules/auth/user.service";
 import { createAuthService } from "../src/modules/auth/auth.service";
@@ -45,7 +46,7 @@ export function testConfig(overrides: { auth?: Partial<AppConfig["auth"]>; rateL
   };
 }
 
-export function buildTestApp(overrides?: Parameters<typeof testConfig>[0], extra: { paymentProviders?: AppDeps["paymentProviders"] } = {}) {
+export function buildTestApp(overrides?: Parameters<typeof testConfig>[0], extra: Pick<AppDeps, "paymentProviders" | "documentStorage"> = {}) {
   const config = testConfig(overrides);
   const emailSender = new InMemoryEmailSender();
   const mediaStorage = createMemoryStorage();
@@ -56,6 +57,8 @@ export function buildTestApp(overrides?: Parameters<typeof testConfig>[0], extra
 
 /** The suite wipes every collection after each test, so RBAC must be re-seeded per test. */
 export const seedRbac = () => syncRbac();
+/** Same reasoning — the posting engine needs the default chart of accounts to exist. */
+export const seedChartOfAccounts = () => syncChartOfAccounts();
 
 let counter = 0;
 export async function createStaff(roleName: RoleName | null, opts: { email?: string; password?: string; isActive?: boolean } = {}) {

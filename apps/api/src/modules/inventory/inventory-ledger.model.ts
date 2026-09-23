@@ -17,6 +17,7 @@ const STATUSES = [
   "HALLMARKING",
   "SCRAP",
   "MELTING",
+  "RETURNED_TO_CUSTOMER",
 ] as const;
 
 export type InventoryLedgerAttrs = Omit<

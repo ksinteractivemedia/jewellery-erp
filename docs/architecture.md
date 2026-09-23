@@ -60,10 +60,16 @@ apps/api/src/modules/
   pricing/         MetalRate, PricingRule, PriceSnapshot — wraps packages/pricing-engine
   customers/       Customer, CustomerGroup, CreditAccount (B2B)
   orders/          Order, OrderLine, Cart — unified B2C + B2B (channel-discriminated)
-  procurement/     Supplier, SupplierPurchaseOrder, GoodsReceipt
-  manufacturing/   ProductionOrder, MaterialIssue/Receipt, JobWorkOrder, Reconciliation
-  invoicing/       Invoice, Payment, PaymentAllocation
-  compliance/      TaxRule (GST/HSN), HallmarkingRecord, HUID tracking
+  suppliers/       Supplier (master data) — **implemented**
+  procurement/     PurchaseRequisition, PurchaseOrder, GoodsReceipt, SupplierInvoice, SupplierPayment/Allocation — **implemented** (Phase 5, docs/data-model.md §7A); calls suppliers/ and inventory/, never the reverse
+  manufacturing/   ProductionOrder, JobWorkOrder, material reconciliation — **implemented** (Phase 6, docs/data-model.md §7B); calls catalog/, suppliers/ and inventory/, never the reverse
+  hallmarking/     AssayingCentre, HallmarkingBatch, HUID tracking — **implemented** (Phase 7, docs/data-model.md §7C); calls inventory/, never the reverse
+  returns/         Return (B2C and B2B) — **implemented** (Phase 8, docs/data-model.md §7D); calls inventory/, orders/ and b2b/ (read-only, to resolve which item an order sold), never the reverse
+  exchange/        Exchange (old jewellery for new) — **implemented** (Phase 8, docs/data-model.md §7D); calls inventory/ and metals/, never the reverse
+  repair/          RepairOrder — **implemented** (Phase 8, docs/data-model.md §7D); calls inventory/, never the reverse
+  accounting/      ChartOfAccount, AccountingEntry, CreditNote, DebitNote — the first accounting layer — **implemented** (Phase 9, docs/data-model.md §7E); called BY b2b/ and procurement/ (never the reverse) at the moment an invoice/payment/note actually posts — see architecture.md §5E
+  invoicing/       (superseded by accounting/ — invoices themselves remain B2BInvoice/SupplierInvoice, each channel's own; this module never separately existed)
+  compliance/      TaxRule (GST/HSN) — the rest of "compliance" (HUID/hallmarking) moved into its own hallmarking/ module above once built, rather than staying a placeholder here
   media/           MediaStorage port (local disk / memory / future S3 adapter), image validation, upload service — **implemented**
   notifications/   BullMQ queues/workers (email, SMS, webhooks)
   shared/          DB connection, error types, middleware, audit logging
@@ -171,6 +177,16 @@ The dashboard is a composition of independent sections, each with its own API en
 - **Payments and allocation.** `verify` refuses the recorder; `allocate` writes the payment and each invoice in one transaction (`allocationSeq`) so racing allocations conflict rather than over-apply; `reverse` marks the payment's allocations reversed. Invoice `paid`, `balance`, status and overdue are computed from unreversed allocations and the due date — never stored.
 - **Derived, never stored:** outstanding, overdue, available credit, an invoice's paid amount and status, ageing buckets.
 - **Read models** (`b2b-reads.service.ts`) serve both doors; the portal catalogue is filtered, sorted and paged in memory (fine for hundreds of designs; needs a price index at thousands).
+
+## 5E. Accounting — **implemented** (Phase 9)
+
+`apps/api/src/modules/accounting`, called from `b2b/` and `procurement/` (never the reverse — accounting knows nothing about sales orders or purchase orders, only about the numbers it's handed). A real double-entry general ledger under the ERP's existing commercial documents, deliberately not a full accounting package: no multi-currency, no cost centres, no budgets, no manual free-form journal entries.
+
+- **One transaction abstraction, the task's own words.** `posting.service.ts`'s `postJournal(session, {referenceType, referenceId, lines: [{role, direction, amount}]})` is the only function that ever writes an `AccountingEntry`: it resolves each line's account by its `SystemAccountRole` (never a hardcoded id — `chart-of-accounts.service.ts`'s `requireSystemAccount`), drops zero-amount lines, and refuses to write anything where debits and credits disagree. `sales-posting.ts` and `purchase-posting.ts` are thin, named wrappers over it (`postSalesInvoice`, `postPaymentReceived`, `postPurchaseInvoice`, `postPaymentMade`) — the same "one engine, different inputs" discipline as the pricing engine (rule 1), applied to bookkeeping.
+- **Perpetual inventory, for real.** Because every `InventoryItem` already carries its own `cost` (set once, at receipt, never mutated), a sales posting can debit Cost of Goods Sold and credit Inventory at the *actual* cost of the pieces sold — not a periodic estimate, not a second inventory valuation system. A purchase posting debits Inventory directly for ledger-tracked lines (the ones that become a real `InventoryItem`) and Purchases for `CONSUMABLE` lines (which never do) — procurement's own existing distinction, not re-decided here.
+- **No new write path for stock or payments.** Accounting entries are posted *inside* the same database transaction as the document that triggered them (an invoice, a payment allocation, a credit/debit note) — the same session-passing pattern `withInventoryTransaction` already established for the inventory ledger, so "the invoice was created but its accounting entry wasn't" can never happen. `Payment`/`PaymentAllocation`, named in the task's own list of entities, are deliberately **not** new collections: B2B's `B2BPayment`/`PaymentAllocation` and Procurement's `SupplierPayment`/`SupplierPaymentAllocation` already implement exactly that (recorded → verified/allocated → derived paid amount), fully tested, and reimplementing them a third time would be the "recreate Tally" the task explicitly warned against. Allocating either now *also* posts a GL entry, through the one shared function.
+- **Append-only, like everything else that matters.** `AccountingEntry` uses the same `appendOnlyPlugin` as `InventoryLedger`/`Transaction`; a reversal (`reverseJournal`) is a new entry with every line's direction flipped, never an edit.
+- **Receivables reporting reuses B2B's own math.** `receivables-reads.service.ts` calls B2B's `ageInvoices`/`isOverdue`/`daysOverdue`/`invoiceStatus`/`paidByInvoice` (`b2b/credit.ts`, `b2b/b2b-core.ts`) rather than re-implementing ageing a second time — the only difference from the portal's own per-customer outstanding view is scope. `reports.service.ts`'s trial balance is a proof, not just a report: since `postJournal` never writes an unbalanced entry, it should always foot to zero.
 
 ## 6. Inventory ledger and concurrency — **implemented** (Phase 1.7)
 

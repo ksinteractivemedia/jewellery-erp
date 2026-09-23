@@ -11,16 +11,20 @@ import { IllegalTransitionError } from "../../shared/errors";
 export const LEGAL_TRANSITIONS: Record<InventoryStatus, InventoryStatus[]> = {
   AVAILABLE: ["RESERVED", "SOLD", "IN_MANUFACTURING", "WITH_JOB_WORKER", "IN_TRANSIT", "HALLMARKING", "UNDER_REPAIR", "DAMAGED", "SCRAP", "MELTING"],
   RESERVED: ["AVAILABLE", "SOLD"],
-  SOLD: ["RETURNED"],
+  // A customer may also bring a sold piece back in for servicing (REPAIR_OUT) without it being a formal RETURN.
+  SOLD: ["RETURNED", "UNDER_REPAIR"],
   RETURNED: ["AVAILABLE", "DAMAGED", "SCRAP"],
   DAMAGED: ["UNDER_REPAIR", "SCRAP", "MELTING"],
-  UNDER_REPAIR: ["AVAILABLE", "DAMAGED", "SCRAP"],
+  // AVAILABLE/DAMAGED (pre-sale repair, REPAIR_IN) — SOLD/RETURNED_TO_CUSTOMER (a repaired piece handed back to its owner, REPAIR_RETURN, never our stock).
+  UNDER_REPAIR: ["AVAILABLE", "DAMAGED", "SCRAP", "SOLD", "RETURNED_TO_CUSTOMER"],
   IN_MANUFACTURING: ["AVAILABLE", "SCRAP", "MELTING"],
   WITH_JOB_WORKER: ["AVAILABLE", "DAMAGED"],
   IN_TRANSIT: ["AVAILABLE", "DAMAGED"],
   HALLMARKING: ["AVAILABLE"],
   SCRAP: ["MELTING"],
   MELTING: [],
+  /** Terminal: the piece is gone, back with whoever owns it. */
+  RETURNED_TO_CUSTOMER: [],
 };
 
 export function isLegalTransition(from: InventoryStatus, to: InventoryStatus): boolean {

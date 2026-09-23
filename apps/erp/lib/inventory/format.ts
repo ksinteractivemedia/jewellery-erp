@@ -22,6 +22,9 @@ export const MOVEMENT_LABELS: Record<MovementType, string> = {
   ADJUSTMENT: "Adjustment",
   SCRAP: "Scrapped",
   MELTING: "Sent for melting",
+  EXCHANGE_IN: "Taken in on exchange",
+  REPAIR_INTAKE: "Repair intake (customer-owned)",
+  REPAIR_RETURN: "Handed back after repair",
 };
 
 export const LOCATION_TYPE_LABELS: Record<LocationType, string> = {

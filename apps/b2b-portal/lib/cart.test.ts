@@ -49,14 +49,14 @@ describe("money", () => {
 
 describe("order steps", () => {
   it("shows an order moving from review to paid, with a quotation step only when there was one", () => {
-    expect(orderSteps({ po: { status: "SUBMITTED" }, quoted: false }).map((s) => [s.label, s.state])).toEqual([["Purchase order", "done"], ["Seller review", "current"], ["Stock allocated", "todo"], ["Invoiced", "todo"], ["Paid", "todo"]]);
-    const s = orderSteps({ quoted: true, order: { status: "INVOICED" }, invoice: { status: "PARTIALLY_PAID" } });
+    expect(orderSteps({ po: { status: "SUBMITTED" }, quoted: false }).map((s) => [s.label, s.state])).toEqual([["Purchase order", "done"], ["Approved", "current"], ["Order placed", "todo"], ["Stock allocated", "todo"], ["Invoiced", "todo"], ["Paid", "todo"]]);
+    const s = orderSteps({ quoted: true, order: { status: "FULFILLED" }, invoice: { status: "PARTIALLY_PAID" } });
     expect(s.map((x) => x.label)).toContain("Quotation");
     expect(s.find((x) => x.label === "Invoiced")!.state).toBe("done");
     expect(s.find((x) => x.label === "Paid")!.state).toBe("current");
   });
   it("marks a credit hold as blocked, with what it is waiting for", () => {
-    const s = orderSteps({ quoted: false, order: { status: "PENDING_CREDIT_APPROVAL" } });
+    const s = orderSteps({ quoted: false, order: { status: "DRAFT" } });
     expect(s.find((x) => x.label === "Credit approval")).toMatchObject({ state: "blocked", note: "Waiting for our credit team" });
   });
 });

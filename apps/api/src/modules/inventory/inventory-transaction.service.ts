@@ -208,11 +208,11 @@ export interface ReceiveNewInventoryItemInput {
   item: CreateInventoryItemInput;
   performedBy: string;
   channel: "ERP" | "B2C" | "B2B";
-  referenceType: "SUPPLIER_PURCHASE_ORDER" | "GOODS_RECEIPT" | "MANUAL" | "PRODUCTION_ORDER" | "JOB_WORK_ORDER";
+  referenceType: "SUPPLIER_PURCHASE_ORDER" | "GOODS_RECEIPT" | "MANUAL" | "PRODUCTION_ORDER" | "JOB_WORK_ORDER" | "REPAIR_ORDER" | "EXCHANGE";
   referenceId?: string;
   reason?: string;
-  /** How the stock entered: bought in, came off the bench, or returned from a job worker. Defaults to PURCHASE_RECEIPT. */
-  movementType?: "PURCHASE_RECEIPT" | "MANUFACTURING_RECEIPT" | "JOBWORK_RECEIPT" | "ADJUSTMENT";
+  /** How the stock entered: bought in, came off the bench, returned from a job worker, taken in on an exchange, or a repair intake for a piece we never held before. Defaults to PURCHASE_RECEIPT. */
+  movementType?: "PURCHASE_RECEIPT" | "MANUFACTURING_RECEIPT" | "JOBWORK_RECEIPT" | "ADJUSTMENT" | "EXCHANGE_IN" | "REPAIR_INTAKE";
 }
 
 /**

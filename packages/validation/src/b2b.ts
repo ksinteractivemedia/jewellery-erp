@@ -70,7 +70,8 @@ const concessionLine = z
     /** Either a percentage off the taxable value, or the target unit price (before GST) — never both. */
     discountPercent: z.number().min(0).max(100).optional(),
     unitTaxable: paise.optional(),
-    note: text(200).optional(),
+    /** Why the price differs from the standard one. Required: every override and discount is audited with its reason. */
+    note: z.string().trim().min(5, "say why (at least 5 characters)").max(200),
   })
   .strict()
   .refine((l) => !(l.discountPercent !== undefined && l.unitTaxable !== undefined), { message: "give a discount percentage or a target price, not both" });
@@ -82,12 +83,18 @@ export const quoteSchema = z
     validDays: z.number().int().min(1).max(90).default(7),
     terms: text(1000).optional(),
     message: text(1000).optional(),
+    /** false saves a DRAFT quotation for later; true (default) issues it to the customer. */
+    issue: z.boolean().default(true),
   })
   .strict();
 export type QuoteInput = z.output<typeof quoteSchema>;
 
 const reason = text(300);
-export const approvePurchaseOrderSchema = z.object({ creditOverride: z.object({ reason: z.string().trim().min(10).max(300) }).strict().optional() }).strict();
+export const approvePurchaseOrderSchema = z.object({ note: text(300).optional() }).strict();
+/** Turning an approved PO into a sales order is where credit is enforced; an override needs a reason and the credit-override permission. */
+export const convertPurchaseOrderSchema = z.object({ creditOverride: z.object({ reason: z.string().trim().min(10).max(300) }).strict().optional() }).strict();
+export const allocateOrderSchema = z.object({}).strict();
+export const invoiceOrderSchema = z.object({ lines: z.array(z.object({ lineIndex: z.number().int().min(0).max(199), quantity: z.number().int().min(1).max(100_000) }).strict()).min(1).max(200).optional() }).strict();
 export const creditApprovalSchema = z.object({ reason: z.string().trim().min(10).max(300) }).strict();
 export const rejectSchema = z.object({ reason }).strict();
 

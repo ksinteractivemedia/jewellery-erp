@@ -14,7 +14,8 @@ export type InventoryStatus =
   | "IN_TRANSIT"
   | "HALLMARKING"
   | "SCRAP"
-  | "MELTING";
+  | "MELTING"
+  | "RETURNED_TO_CUSTOMER";
 
 const config: Record<InventoryStatus, { label: string; tone: StatusTone }> = {
   AVAILABLE: { label: "Available", tone: "success" },
@@ -29,6 +30,7 @@ const config: Record<InventoryStatus, { label: string; tone: StatusTone }> = {
   HALLMARKING: { label: "Hallmarking", tone: "warning" },
   SCRAP: { label: "Scrap", tone: "danger" },
   MELTING: { label: "Melting", tone: "danger" },
+  RETURNED_TO_CUSTOMER: { label: "Returned to customer", tone: "neutral" },
 };
 
 export interface InventoryStatusBadgeProps {

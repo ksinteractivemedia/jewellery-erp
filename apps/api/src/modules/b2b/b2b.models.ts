@@ -14,14 +14,18 @@ export interface LineAttrs {
   variantLabel?: string;
   quantity: number;
   priceOnRequest?: boolean;
+  unitMaking: number;
+  unitDiscount: number;
   unitTaxable: number;
   unitGst: number;
   unitTotal: number;
+  lineMaking: number;
+  lineDiscount: number;
   lineTaxable: number;
   lineGst: number;
   lineTotal: number;
   basis?: string;
-  concession?: { kind: "PERCENT" | "TARGET_PRICE"; value: number; note?: string };
+  concession?: { kind: "PERCENT" | "TARGET_PRICE"; value: number; note?: string; listUnitTaxable?: number };
   priceSnapshotId?: Types.ObjectId;
 }
 export interface TotalsAttrs { taxable: number; gst: number; total: number; complete: boolean }
@@ -38,14 +42,18 @@ const lineSchema = new Schema<LineAttrs>(
     variantLabel: String,
     quantity: { type: Number, required: true, min: 1 },
     priceOnRequest: Boolean,
+    unitMaking: { type: Number, default: 0, min: 0 },
+    unitDiscount: { type: Number, default: 0, min: 0 },
     unitTaxable: money,
     unitGst: money,
     unitTotal: money,
+    lineMaking: { type: Number, default: 0, min: 0 },
+    lineDiscount: { type: Number, default: 0, min: 0 },
     lineTaxable: money,
     lineGst: money,
     lineTotal: money,
     basis: String,
-    concession: { type: new Schema({ kind: { type: String, enum: ["PERCENT", "TARGET_PRICE"] }, value: Number, note: String }, { _id: false }) },
+    concession: { type: new Schema({ kind: { type: String, enum: ["PERCENT", "TARGET_PRICE"] }, value: Number, note: String, listUnitTaxable: Number }, { _id: false }) },
     priceSnapshotId: { type: Schema.Types.ObjectId, ref: "PriceSnapshot" },
   },
   { _id: false }
@@ -63,8 +71,13 @@ export interface PurchaseOrderAttrs {
   lines: LineAttrs[];
   totals: TotalsAttrs;
   shippingAddress: AddressAttrs;
+  billingAddress: AddressAttrs;
   notes?: string;
   requestedDeliveryDate?: string;
+  /** Private files the customer (or seller) attached; the bytes live in document storage under `key`, never at a public URL. */
+  attachments: { _id: Types.ObjectId; name: string; mimeType: string; size: number; key: string; uploadedAt: Date; uploadedBy: "CUSTOMER" | "SELLER"; uploadedById: Types.ObjectId; uploadedByName?: string }[];
+  /** What was agreed: set when the PO is approved (by the seller directly, or by the customer accepting a quotation). */
+  approved?: { lines: LineAttrs[]; totals: TotalsAttrs; approvedAt: Date; approvedByName?: string; via: "QUOTATION" | "DIRECT" };
   credit?: unknown;
   quotationId?: Types.ObjectId;
   salesOrderId?: Types.ObjectId;
@@ -85,8 +98,11 @@ const poSchema = new Schema<PurchaseOrderAttrs>(
     lines: { type: [lineSchema], validate: (v: unknown[]) => v.length > 0 },
     totals: { type: totalsSchema, required: true },
     shippingAddress: { type: addressSchema, required: true },
+    billingAddress: { type: addressSchema, required: true },
     notes: String,
     requestedDeliveryDate: String,
+    attachments: { type: [new Schema({ name: { type: String, required: true }, mimeType: { type: String, required: true }, size: { type: Number, required: true }, key: { type: String, required: true }, uploadedAt: { type: Date, required: true }, uploadedBy: { type: String, enum: ["CUSTOMER", "SELLER"], required: true }, uploadedById: { type: Schema.Types.ObjectId, required: true }, uploadedByName: String })], default: [] },
+    approved: { type: new Schema({ lines: { type: [lineSchema], default: [] }, totals: { type: totalsSchema }, approvedAt: Date, approvedByName: String, via: { type: String, enum: ["QUOTATION", "DIRECT"] } }, { _id: false }) },
     credit: Schema.Types.Mixed,
     quotationId: { type: Schema.Types.ObjectId, ref: "Quotation" },
     salesOrderId: { type: Schema.Types.ObjectId, ref: "B2BSalesOrder" },
@@ -150,13 +166,16 @@ export interface SalesOrderAttrs {
   lines: LineAttrs[];
   totals: TotalsAttrs;
   shippingAddress: AddressAttrs;
+  billingAddress: AddressAttrs;
   /** The credit check as it stood when the order was created, and any override that let it through. */
   credit: { check: unknown; override?: { reason: string; at: Date; byId: Types.ObjectId; byName?: string } };
   shortfall?: unknown;
   /** Pieces held for each line (by line index). Fulfilment state, not commercial state. */
   allocations: { lineIndex: number; itemIds: Types.ObjectId[] }[];
+  /** Pieces sold and invoiced so far, per line. */
+  invoiced: { lineIndex: number; quantity: number }[];
   allocatedAt?: Date;
-  invoiceId?: Types.ObjectId;
+  invoiceIds: Types.ObjectId[];
   history: HistoryAttrs[];
   createdAt: Date;
 }
@@ -174,16 +193,18 @@ const salesOrderSchema = new Schema<SalesOrderAttrs>(
     lines: { type: [lineSchema], validate: (v: unknown[]) => v.length > 0 },
     totals: { type: totalsSchema, required: true },
     shippingAddress: { type: addressSchema, required: true },
+    billingAddress: { type: addressSchema, required: true },
     credit: { type: Schema.Types.Mixed, required: true },
     shortfall: Schema.Types.Mixed,
     allocations: { type: [new Schema({ lineIndex: Number, itemIds: [{ type: Schema.Types.ObjectId, ref: "InventoryItem" }] }, { _id: false })], default: [] },
+    invoiced: { type: [new Schema({ lineIndex: Number, quantity: Number }, { _id: false })], default: [] },
     allocatedAt: Date,
-    invoiceId: { type: Schema.Types.ObjectId, ref: "B2BInvoice" },
+    invoiceIds: { type: [{ type: Schema.Types.ObjectId, ref: "B2BInvoice" }], default: [] },
     history: { type: [historySchema], default: [] },
   },
   baseSchemaOptions<SalesOrderAttrs>()
 );
-freezePaths(salesOrderSchema, ["soNo", "purchaseOrderId", "poNo", "quotationId", "customerId", "lines", "totals", "shippingAddress"], "Sales order");
+freezePaths(salesOrderSchema, ["soNo", "purchaseOrderId", "poNo", "quotationId", "customerId", "lines", "totals", "shippingAddress", "billingAddress"], "Sales order");
 export const SalesOrderModel: Model<SalesOrderAttrs> = model<SalesOrderAttrs>("B2BSalesOrder", salesOrderSchema);
 
 // ---- invoice ---------------------------------------------------------------------------------------
@@ -201,6 +222,9 @@ export interface InvoiceAttrs {
   totals: TotalsAttrs;
   taxes: { supplyType: "INTRA_STATE" | "INTER_STATE"; cgst: number; sgst: number; igst: number };
   shippingAddress: AddressAttrs;
+  billingAddress: AddressAttrs;
+  /** 1, 2, 3 … — an order may be invoiced in several parts. */
+  sequence: number;
   status: "ISSUED" | "CANCELLED";
   /** Bumped by every allocation so two allocations racing on one invoice conflict instead of over-paying it. */
   allocationSeq: number;
@@ -211,7 +235,7 @@ export type InvoiceDocument = HydratedDocument<InvoiceAttrs>;
 const invoiceSchema = new Schema<InvoiceAttrs>(
   {
     invoiceNo: { type: String, required: true, unique: true },
-    salesOrderId: { type: Schema.Types.ObjectId, ref: "B2BSalesOrder", required: true, unique: true },
+    salesOrderId: { type: Schema.Types.ObjectId, ref: "B2BSalesOrder", required: true, index: true },
     soNo: { type: String, required: true },
     customerId: { type: Schema.Types.ObjectId, ref: "Customer", required: true, index: true },
     customerName: { type: String, required: true },
@@ -222,6 +246,8 @@ const invoiceSchema = new Schema<InvoiceAttrs>(
     totals: { type: totalsSchema, required: true },
     taxes: { type: Schema.Types.Mixed, required: true },
     shippingAddress: { type: addressSchema, required: true },
+    billingAddress: { type: addressSchema, required: true },
+    sequence: { type: Number, default: 1, min: 1 },
     status: { type: String, enum: ["ISSUED", "CANCELLED"], default: "ISSUED" },
     allocationSeq: { type: Number, default: 0 },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
@@ -229,7 +255,7 @@ const invoiceSchema = new Schema<InvoiceAttrs>(
   baseSchemaOptions<InvoiceAttrs>()
 );
 invoiceSchema.index({ customerId: 1, dueDate: 1 });
-freezePaths(invoiceSchema, ["invoiceNo", "salesOrderId", "soNo", "customerId", "customerName", "gstin", "issueDate", "dueDate", "lines", "totals", "taxes", "shippingAddress"], "Invoice");
+freezePaths(invoiceSchema, ["invoiceNo", "salesOrderId", "soNo", "customerId", "customerName", "gstin", "issueDate", "dueDate", "lines", "totals", "taxes", "shippingAddress", "billingAddress", "sequence"], "Invoice");
 export const InvoiceModel: Model<InvoiceAttrs> = model<InvoiceAttrs>("B2BInvoice", invoiceSchema);
 
 // ---- payment & allocation --------------------------------------------------------------------------

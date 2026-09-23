@@ -1,43 +1,100 @@
 import { describe, expect, it } from "vitest";
-import { B2B_PAYMENT_METHODS, PURCHASE_ORDER_STATUSES, SALES_ORDER_STATUSES } from "@jewellery/types";
+import { B2B_PAYMENT_METHODS, B2B_PAYMENT_STATUSES, PURCHASE_ORDER_STATUSES, QUOTATION_STATUSES, SALES_ORDER_STATUSES } from "@jewellery/types";
 import { b2bContactSchema, quoteSchema, reportPaymentSchema, createPurchaseOrderSchema, portalLineSchema } from "@jewellery/validation";
-import { PAYMENT_TRANSITIONS, PO_TRANSITIONS, SO_TRANSITIONS, assertPoTransition, assertSoTransition, assertPaymentTransition } from "./b2b-status";
+import {
+  IllegalB2BTransitionError, PAYMENT_RULES, PAYMENT_TRANSITIONS, PO_RULES, PO_TRANSITIONS, QUOTATION_RULES, QUOTATION_TRANSITIONS, SO_ACTION_TARGETS, SO_RULES, SO_TRANSITIONS,
+  assertSoMove, checkPaymentAction, checkPoAction, checkQuotationAction, checkSoAction, salesOrderStatusFor,
+} from "./b2b-status";
 import { ageInvoices, checkCredit, creditPosition, invoiceStatus, isOverdue } from "./credit";
 
 const TODAY = "2026-09-21";
 const pos = (over: Partial<Parameters<typeof creditPosition>[0]> = {}) => creditPosition({ limit: 1_000_000_00, onHold: false, blockOnOverdue: false, invoices: [], committedOrders: [], today: TODAY, ...over });
 
-describe("purchase order and sales order lifecycles", () => {
-  it("cover every status", () => {
-    for (const s of PURCHASE_ORDER_STATUSES) expect(PO_TRANSITIONS[s], s).toBeDefined();
-    for (const s of SALES_ORDER_STATUSES) expect(SO_TRANSITIONS[s], s).toBeDefined();
+/** Every (action x status) pair is decided by the rule tables: allowed exactly from the listed statuses, refused with a typed 409 from every other. */
+function exhaust(kind: string, all: readonly string[], rules: Record<string, { from: readonly string[]; to: string }>, check: (action: string, status: string) => string) {
+  describe(`${kind}: every action x every status`, () => {
+    for (const [action, rule] of Object.entries(rules)) {
+      for (const status of all) {
+        const allowed = rule.from.includes(status);
+        it(`${action} from ${status} is ${allowed ? `allowed -> ${rule.to}` : "refused"}`, () => {
+          if (allowed) expect(check(action, status)).toBe(rule.to);
+          else expect(() => check(action, status)).toThrow(IllegalB2BTransitionError);
+        });
+      }
+    }
   });
-  it("PO: draft → submitted → reviewed → quoted ⇄ negotiating → approved; terminals stay terminal", () => {
-    expect(() => assertPoTransition("DRAFT", "SUBMITTED")).not.toThrow();
-    expect(() => assertPoTransition("SUBMITTED", "UNDER_REVIEW")).not.toThrow();
-    expect(() => assertPoTransition("UNDER_REVIEW", "QUOTED")).not.toThrow();
-    expect(() => assertPoTransition("QUOTED", "NEGOTIATING")).not.toThrow();
-    expect(() => assertPoTransition("NEGOTIATING", "QUOTED")).not.toThrow();
-    expect(() => assertPoTransition("QUOTED", "APPROVED")).not.toThrow();
-    for (const t of ["APPROVED", "REJECTED", "CANCELLED"] as const) expect(PO_TRANSITIONS[t]).toEqual([]);
+}
+exhaust("purchase order", PURCHASE_ORDER_STATUSES, PO_RULES, (a, s) => checkPoAction(a as never, s as never));
+exhaust("quotation", QUOTATION_STATUSES, QUOTATION_RULES, (a, s) => checkQuotationAction(a as never, s as never));
+exhaust("payment", B2B_PAYMENT_STATUSES, PAYMENT_RULES, (a, s) => checkPaymentAction(a as never, s as never));
+
+describe("sales order: every action x every status", () => {
+  for (const [action, rule] of Object.entries(SO_RULES)) {
+    for (const status of SALES_ORDER_STATUSES) {
+      const allowed = (rule.from as readonly string[]).includes(status);
+      it(`${action} from ${status} is ${allowed ? "allowed" : "refused"}`, () => {
+        if (allowed) expect(() => checkSoAction(action as never, status)).not.toThrow();
+        else expect(() => checkSoAction(action as never, status)).toThrow(IllegalB2BTransitionError);
+      });
+    }
+  }
+});
+
+describe("the graphs are exactly what the rules imply: no status can be reached any other way", () => {
+  it("purchase order: every edge is produced by some action, and terminal statuses have no exits", () => {
+    for (const from of PURCHASE_ORDER_STATUSES) for (const to of PURCHASE_ORDER_STATUSES) {
+      const viaRule = Object.values(PO_RULES).some((r) => (r.from as readonly string[]).includes(from) && r.to === to);
+      expect(PO_TRANSITIONS[from].includes(to), `${from} -> ${to}`).toBe(viaRule);
+    }
+    for (const t of ["REJECTED", "CONVERTED", "CANCELLED"] as const) expect(PO_TRANSITIONS[t]).toEqual([]);
   });
-  it("PO: a draft cannot skip review, and an approved PO cannot be reopened", () => {
-    expect(() => assertPoTransition("DRAFT", "APPROVED")).toThrow(/cannot go from DRAFT to APPROVED/);
-    expect(() => assertPoTransition("APPROVED", "QUOTED")).toThrow();
+  it("quotation: same, and the ends are final", () => {
+    for (const from of QUOTATION_STATUSES) for (const to of QUOTATION_STATUSES) {
+      const viaRule = Object.values(QUOTATION_RULES).some((r) => (r.from as readonly string[]).includes(from) && r.to === to);
+      expect(QUOTATION_TRANSITIONS[from].includes(to), `${from} -> ${to}`).toBe(viaRule);
+    }
+    for (const t of ["REJECTED", "EXPIRED", "CONVERTED", "SUPERSEDED"] as const) expect(QUOTATION_TRANSITIONS[t]).toEqual([]);
   });
-  it("sales order: nothing is invoiced before it is allocated, or allocated before it is approved", () => {
-    expect(() => assertSoTransition("PENDING_CREDIT_APPROVAL", "ALLOCATED")).toThrow();
-    expect(() => assertSoTransition("APPROVED", "INVOICED")).toThrow();
-    expect(() => assertSoTransition("PENDING_CREDIT_APPROVAL", "APPROVED")).not.toThrow();
-    expect(() => assertSoTransition("APPROVED", "ALLOCATED")).not.toThrow();
-    expect(() => assertSoTransition("ALLOCATED", "INVOICED")).not.toThrow();
-    expect(SO_TRANSITIONS.INVOICED).toEqual([]);
+  it("payment: verified once, reversed only from verified, rejected final", () => {
+    expect(PAYMENT_TRANSITIONS).toEqual({ PENDING_VERIFICATION: ["VERIFIED", "REJECTED"], VERIFIED: ["REVERSED"], REJECTED: [], REVERSED: [] });
   });
-  it("payment: verified once; only a verified payment can be reversed; rejected is final", () => {
-    expect(() => assertPaymentTransition("PENDING_VERIFICATION", "VERIFIED")).not.toThrow();
-    expect(() => assertPaymentTransition("VERIFIED", "REVERSED")).not.toThrow();
-    expect(() => assertPaymentTransition("PENDING_VERIFICATION", "REVERSED")).toThrow();
-    expect(PAYMENT_TRANSITIONS.REJECTED).toEqual([]);
+  it("sales order: the exact legal edges", () => {
+    expect(SO_TRANSITIONS.DRAFT).toEqual(["CONFIRMED", "CANCELLED"]);
+    expect([...SO_TRANSITIONS.CONFIRMED].sort()).toEqual(["ALLOCATED", "CANCELLED", "PARTIALLY_ALLOCATED"]);
+    expect([...SO_TRANSITIONS.PARTIALLY_ALLOCATED].sort()).toEqual(["ALLOCATED", "CANCELLED", "CONFIRMED", "FULFILLED", "PARTIALLY_ALLOCATED", "PARTIALLY_FULFILLED"]);
+    expect([...SO_TRANSITIONS.ALLOCATED].sort()).toEqual(["CANCELLED", "CONFIRMED", "FULFILLED", "PARTIALLY_FULFILLED"]);
+    expect([...SO_TRANSITIONS.PARTIALLY_FULFILLED].sort()).toEqual(["CANCELLED", "FULFILLED", "PARTIALLY_FULFILLED"]);
+    expect(SO_TRANSITIONS.FULFILLED).toEqual([]);
+    expect(SO_TRANSITIONS.CANCELLED).toEqual([]);
+  });
+  it("nothing skips a stage: a DRAFT can't be allocated, CONFIRMED can't be invoiced, FULFILLED and CANCELLED never move", () => {
+    expect(() => assertSoMove("allocate", "DRAFT", "ALLOCATED")).toThrow(IllegalB2BTransitionError);
+    expect(() => assertSoMove("invoice", "CONFIRMED", "FULFILLED")).toThrow(IllegalB2BTransitionError);
+    expect(() => assertSoMove("invoice", "FULFILLED", "PARTIALLY_FULFILLED")).toThrow(IllegalB2BTransitionError);
+    expect(() => assertSoMove("allocate", "CANCELLED", "CONFIRMED")).toThrow(IllegalB2BTransitionError);
+    expect(SO_ACTION_TARGETS.invoice).not.toContain("ALLOCATED");
+  });
+});
+
+describe("a sales order's status is derived from the numbers", () => {
+  const f = (total: number, allocated: number, invoiced: number) => salesOrderStatusFor({ total, allocated, invoiced });
+  it("moves through every status as stock is held and pieces are invoiced", () => {
+    expect(f(10, 0, 0)).toBe("CONFIRMED");
+    expect(f(10, 4, 0)).toBe("PARTIALLY_ALLOCATED");
+    expect(f(10, 10, 0)).toBe("ALLOCATED");
+    expect(f(10, 6, 4)).toBe("PARTIALLY_FULFILLED");
+    expect(f(10, 0, 4)).toBe("PARTIALLY_FULFILLED");
+    expect(f(10, 0, 10)).toBe("FULFILLED");
+  });
+});
+
+describe("the workflow's own vocabulary", () => {
+  it("purchase orders and quotations use the agreed statuses", () => {
+    expect([...PURCHASE_ORDER_STATUSES]).toEqual(["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUOTED", "NEGOTIATION", "APPROVED", "REJECTED", "EXPIRED", "CONVERTED", "CANCELLED"]);
+    expect([...QUOTATION_STATUSES]).toEqual(["DRAFT", "QUOTED", "NEGOTIATION", "APPROVED", "REJECTED", "EXPIRED", "CONVERTED", "SUPERSEDED"]);
+  });
+  it("sales orders use the agreed statuses", () => {
+    expect([...SALES_ORDER_STATUSES]).toEqual(["DRAFT", "CONFIRMED", "PARTIALLY_ALLOCATED", "ALLOCATED", "PARTIALLY_FULFILLED", "FULFILLED", "CANCELLED"]);
   });
 });
 
@@ -130,9 +187,10 @@ describe("shared vocabulary and request schemas", () => {
     expect(createPurchaseOrderSchema.safeParse({ ...po, total: 1 }).success).toBe(false);
   });
   it("a concession is a percentage OR a target price, never both", () => {
-    expect(quoteSchema.safeParse({ lines: [{ sku: "A", discountPercent: 5 }] }).success).toBe(true);
-    expect(quoteSchema.safeParse({ lines: [{ sku: "A", unitTaxable: 100 }] }).success).toBe(true);
-    expect(quoteSchema.safeParse({ lines: [{ sku: "A", discountPercent: 5, unitTaxable: 100 }] }).success).toBe(false);
+    expect(quoteSchema.safeParse({ lines: [{ sku: "A", discountPercent: 5, note: "Volume order" }] }).success).toBe(true);
+    expect(quoteSchema.safeParse({ lines: [{ sku: "A", unitTaxable: 100, note: "Match a rival" }] }).success).toBe(true);
+    expect(quoteSchema.safeParse({ lines: [{ sku: "A", discountPercent: 5, unitTaxable: 100, note: "both at once" }] }).success).toBe(false);
+    expect(quoteSchema.safeParse({ lines: [{ sku: "A", discountPercent: 5 }] }).success).toBe(false); // a concession needs its reason
   });
   it("contacts need a name", () => {
     expect(b2bContactSchema.safeParse({ name: "" }).success).toBe(false);

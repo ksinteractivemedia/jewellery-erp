@@ -26,49 +26,61 @@ const scoped = (s: Scope) => (s.customerId ? { customerId: s.customerId } : {});
  * derived figures — what an invoice has been paid, what is outstanding, what is overdue — are computed here from allocations and
  * due dates on every read; there is no stored balance to drift.
  */
-export function createB2BReads(deps: { media: MediaService; now?: () => Date }) {
+export function createB2BReads(deps: { media: MediaService; now?: () => Date; /** Runs before anything time-dependent is read (quotation expiry), so what is shown is what is true now. */ refresh?: () => Promise<unknown> }) {
   const { media } = deps;
   const clock = deps.now ?? (() => new Date());
+  const fresh = async () => void (await deps.refresh?.());
 
   // ---- documents ------------------------------------------------------------------------------------------
   const purchaseOrders = async (s: Scope & { status?: string; q?: string } = {}): Promise<B2BPurchaseOrder[]> => {
+    await fresh();
     const filter: Record<string, unknown> = { ...scoped(s), ...(s.status ? { status: { $in: s.status.split(",") } } : {}) };
     if (s.q) filter.$or = [{ poNo: new RegExp(s.q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") }, { customerName: new RegExp(s.q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") }, { customerPoRef: new RegExp(s.q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") }];
     return (await PurchaseOrderModel.find(filter).sort({ createdAt: -1 }).limit(200).lean()).map((d) => poView(d as never));
   };
   const purchaseOrder = async (poId: string, s: Scope = {}) => {
+    await fresh();
     if (!Types.ObjectId.isValid(poId)) throw new NotFoundError("Purchase order", poId);
     const d = await PurchaseOrderModel.findOne({ _id: poId, ...scoped(s) }).lean();
     if (!d) throw new NotFoundError("Purchase order", poId);
     return poView(d as never);
   };
 
+  // A DRAFT quotation is prepared but not yet sent — a buyer-scoped read (`s.customerId` set, i.e. the portal) never shows it.
   const quotations = async (s: Scope & { status?: string } = {}): Promise<B2BQuotation[]> => {
-    const docs = await QuotationModel.find({ ...scoped(s) }).sort({ issuedAt: -1 }).limit(200).lean();
+    await fresh();
+    const filter: Record<string, unknown> = { ...scoped(s), ...(s.customerId ? { status: { $ne: "DRAFT" } } : {}) };
+    const docs = await QuotationModel.find(filter).sort({ issuedAt: -1 }).limit(200).lean();
     const pos = new Map((await PurchaseOrderModel.find({ _id: { $in: docs.map((d) => d.purchaseOrderId) } }).select("poNo customerName").lean()).map((p) => [id(p._id), p]));
     const now = clock();
     const views = docs.map((d) => quotationView(d as never, { poNo: pos.get(id(d.purchaseOrderId))?.poNo ?? "", customerName: pos.get(id(d.purchaseOrderId))?.customerName ?? "", now }));
     return s.status ? views.filter((v) => s.status!.split(",").includes(v.status)) : views;
   };
   const quotation = async (quoteId: string, s: Scope = {}) => {
+    await fresh();
     if (!Types.ObjectId.isValid(quoteId)) throw new NotFoundError("Quotation", quoteId);
     const d = await QuotationModel.findOne({ _id: quoteId, ...scoped(s) }).lean();
-    if (!d) throw new NotFoundError("Quotation", quoteId);
+    if (!d || (s.customerId && d.status === "DRAFT")) throw new NotFoundError("Quotation", quoteId);
     const po = await PurchaseOrderModel.findById(d.purchaseOrderId).select("poNo customerName").lean();
     return quotationView(d as never, { poNo: po?.poNo ?? "", customerName: po?.customerName ?? "", now: clock() });
   };
 
+  const invoiceStubs = async (orderIds: unknown[]) => {
+    const invs = await InvoiceModel.find({ salesOrderId: { $in: orderIds } }).sort({ sequence: 1 }).select("invoiceNo totals.total salesOrderId").lean();
+    const by = new Map<string, { id: string; invoiceNo: string; total: number }[]>();
+    for (const i of invs) by.set(id(i.salesOrderId), [...(by.get(id(i.salesOrderId)) ?? []), { id: id(i._id), invoiceNo: i.invoiceNo, total: i.totals.total }]);
+    return by;
+  };
   const salesOrders = async (s: Scope & { status?: string } = {}): Promise<B2BSalesOrder[]> => {
     const docs = await SalesOrderModel.find({ ...scoped(s), ...(s.status ? { status: { $in: s.status.split(",") } } : {}) }).sort({ createdAt: -1 }).limit(200).lean();
-    const inv = new Map((await InvoiceModel.find({ _id: { $in: docs.map((d) => d.invoiceId).filter(Boolean) } }).select("invoiceNo").lean()).map((i) => [id(i._id), i.invoiceNo]));
-    return docs.map((d) => salesOrderView(d as never, d.invoiceId ? inv.get(id(d.invoiceId)) : undefined));
+    const inv = await invoiceStubs(docs.map((d) => d._id));
+    return docs.map((d) => salesOrderView(d as never, inv.get(id(d._id)) ?? []));
   };
   const salesOrder = async (soId: string, s: Scope = {}) => {
     if (!Types.ObjectId.isValid(soId)) throw new NotFoundError("Sales order", soId);
     const d = await SalesOrderModel.findOne({ _id: soId, ...scoped(s) }).lean();
     if (!d) throw new NotFoundError("Sales order", soId);
-    const inv = d.invoiceId ? await InvoiceModel.findById(d.invoiceId).select("invoiceNo").lean() : null;
-    return salesOrderView(d as never, inv?.invoiceNo);
+    return salesOrderView(d as never, (await invoiceStubs([d._id])).get(id(d._id)) ?? []);
   };
 
   const invoicesOf = async (filter: Record<string, unknown>, opts: { withAllocations?: boolean } = {}): Promise<B2BInvoice[]> => {
@@ -126,7 +138,7 @@ export function createB2BReads(deps: { media: MediaService; now?: () => Date }) 
 
   async function dashboard(customerId: string): Promise<B2BDashboard> {
     const [acct, pos, quotes, orders, out, pay] = await Promise.all([account(customerId), purchaseOrders({ customerId }), quotations({ customerId }), salesOrders({ customerId }), outstanding(customerId), payments({ customerId })]);
-    const liveQuotes = quotes.filter((q) => q.status === "ISSUED");
+    const liveQuotes = quotes.filter((q) => q.status === "QUOTED");
     const overdue = out.invoices.filter((i) => i.status === "OVERDUE");
     const p = acct.position;
     const actions: B2BDashboard["actions"] = [];
@@ -138,9 +150,9 @@ export function createB2BReads(deps: { media: MediaService; now?: () => Date }) 
     return {
       account: acct,
       counts: {
-        openPurchaseOrders: pos.filter((x) => ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUOTED", "NEGOTIATING"].includes(x.status)).length,
+        openPurchaseOrders: pos.filter((x) => ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUOTED", "NEGOTIATION", "APPROVED"].includes(x.status)).length,
         quotationsAwaitingYou: liveQuotes.length,
-        ordersInProgress: orders.filter((o) => ["PENDING_CREDIT_APPROVAL", "APPROVED", "ALLOCATED"].includes(o.status)).length,
+        ordersInProgress: orders.filter((o) => ["DRAFT", "CONFIRMED", "PARTIALLY_ALLOCATED", "ALLOCATED", "PARTIALLY_FULFILLED"].includes(o.status)).length,
         unpaidInvoices: out.invoices.length,
         overdueInvoices: overdue.length,
         paymentsPending: pay.filter((x) => x.status === "PENDING_VERIFICATION").length,

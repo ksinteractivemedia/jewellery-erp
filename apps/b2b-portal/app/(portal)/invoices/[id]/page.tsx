@@ -5,24 +5,24 @@ import { useParams } from "next/navigation";
 import { Printer } from "lucide-react";
 import { date, money } from "../../../../lib/money";
 import { INVOICE_LABEL, METHOD_LABEL } from "../../../../lib/status";
-import { useAccount, useInvoice } from "../../../../lib/queries";
+import { useInvoice } from "../../../../lib/queries";
 import { DocLines } from "../../../../components/lines";
 import { Failure, Loading, PageHead, StatusPill, TotalsBox } from "../../../../components/ui";
 
 export default function InvoicePage() {
   const { id } = useParams<{ id: string }>();
   const q = useInvoice(id);
-  const account = useAccount();
   if (q.isLoading) return <Loading rows={6} />;
   if (q.isError || !q.data) return <Failure error={q.error} retry={() => q.refetch()} />;
   const inv = q.data;
   const t = inv.taxes;
   return (
     <>
-      <PageHead title={`Invoice ${inv.invoiceNo}`} sub={<>Order <Link className="underline underline-offset-2" href={`/orders/${inv.salesOrderId}`}>{inv.soNo}</Link> · issued {date(inv.issueDate)} · due {date(inv.dueDate)}</>} actions={<><StatusPill map={INVOICE_LABEL} status={inv.status} /><button className="btn btn-outline btn-sm print:hidden" onClick={() => window.print()} data-testid="print"><Printer className="h-4 w-4" aria-hidden="true" />Print</button></>} />
+      <PageHead title={`Invoice ${inv.invoiceNo}`} sub={<>Order <Link className="underline underline-offset-2" href={`/orders/${inv.salesOrderId}`}>{inv.soNo}</Link>{inv.sequence > 1 && <> · invoice #{inv.sequence} for this order</>} · issued {date(inv.issueDate)} · due {date(inv.dueDate)}</>} actions={<><StatusPill map={INVOICE_LABEL} status={inv.status} /><button className="btn btn-outline btn-sm print:hidden" onClick={() => window.print()} data-testid="print"><Printer className="h-4 w-4" aria-hidden="true" />Print</button></>} />
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section className="flex flex-col gap-4">
-          <div className="card grid gap-4 p-4 text-[0.8125rem] sm:grid-cols-2"><div><p className="label mb-1">Billed to</p><p className="font-medium">{inv.customer.name}</p>{inv.customer.gstin && <p className="text-muted">GSTIN {inv.customer.gstin}</p>}{account.data?.billingAddress && <p>{account.data.billingAddress.line1}, {account.data.billingAddress.city}, {account.data.billingAddress.state} {account.data.billingAddress.postalCode}</p>}</div><div><p className="label mb-1">Ship to</p><p>{inv.shippingAddress.line1}<br />{inv.shippingAddress.city}, {inv.shippingAddress.state} {inv.shippingAddress.postalCode}</p></div></div>
+          {/* The invoice's OWN frozen billing address — not the account's current one, which may since have changed. */}
+          <div className="card grid gap-4 p-4 text-[0.8125rem] sm:grid-cols-2"><div><p className="label mb-1">Billed to</p><p className="font-medium">{inv.customer.name}</p>{inv.customer.gstin && <p className="text-muted">GSTIN {inv.customer.gstin}</p>}<p>{inv.billingAddress.line1}, {inv.billingAddress.city}, {inv.billingAddress.state} {inv.billingAddress.postalCode}</p></div><div><p className="label mb-1">Ship to</p><p>{inv.shippingAddress.line1}<br />{inv.shippingAddress.city}, {inv.shippingAddress.state} {inv.shippingAddress.postalCode}</p></div></div>
           <DocLines lines={inv.lines} testId="invoice-lines" />
           <div className="card p-4"><h2 className="mb-2 font-semibold">Payments applied</h2>
             {inv.allocations.length === 0 ? <p className="text-muted" data-testid="no-allocations">No payment has been applied to this invoice yet.</p> : <table className="tbl" data-testid="allocations"><thead><tr><th>Payment</th><th>Method</th><th>Reference</th><th>Applied</th><th className="text-right">Amount</th></tr></thead><tbody>{inv.allocations.map((a, i) => <tr key={i}><td>{a.paymentNo}</td><td>{METHOD_LABEL[a.method]}</td><td className="text-muted">{a.reference ?? "—"}</td><td>{date(a.at)}</td><td className="num text-right">{money(a.amount)}</td></tr>)}</tbody></table>}

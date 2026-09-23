@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import type { B2BAccount, B2BInvoice, B2BPayment, B2BPurchaseOrder, B2BQuotation, B2BSalesOrder, CreditPosition } from "@jewellery/types";
-import { apiFetch } from "../auth/api-client";
+import type { B2BAccount, B2BAttachment, B2BInvoice, B2BPayment, B2BPurchaseOrder, B2BQuotation, B2BSalesOrder, CreditPosition } from "@jewellery/types";
+import { API_URL, apiFetch, getAccessToken } from "../auth/api-client";
 import { useApiMutation } from "./queries";
 
 export interface B2BCustomerRow {
@@ -32,14 +32,33 @@ export const b2bApi = {
   updateProfile: (id: string, body: object) => apiFetch<{ account: B2BAccount }>(`/api/b2b/customers/${id}/profile`, json("PATCH", body)),
   purchaseOrders: (status?: string) => list<B2BPurchaseOrder>("/purchase-orders", { status }),
   review: (id: string) => apiFetch(`/api/b2b/purchase-orders/${id}/review`, json("POST")),
-  approve: (id: string, body: object) => apiFetch<{ order: B2BSalesOrder }>(`/api/b2b/purchase-orders/${id}/approve`, json("POST", body)),
+  /** Fixes the agreed terms (lines, prices, totals) at today's rate. Does not commit stock or credit — see `convert`. */
+  approve: (id: string, note?: string) => apiFetch<{ purchaseOrder: B2BPurchaseOrder }>(`/api/b2b/purchase-orders/${id}/approve`, json("POST", note ? { note } : {})),
+  /** Commits credit and creates the sales order from an APPROVED PO's frozen terms. */
+  convert: (id: string, body: object = {}) => apiFetch<{ order: B2BSalesOrder }>(`/api/b2b/purchase-orders/${id}/convert`, json("POST", body)),
   quote: (id: string, body: object) => apiFetch<{ quotation: B2BQuotation }>(`/api/b2b/purchase-orders/${id}/quote`, json("POST", body)),
   reject: (id: string, reason: string) => apiFetch(`/api/b2b/purchase-orders/${id}/reject`, json("POST", { reason })),
+  cancelPurchaseOrder: (id: string, reason?: string) => apiFetch(`/api/b2b/purchase-orders/${id}/cancel`, json("POST", reason ? { reason } : {})),
+  addAttachment: (poId: string, file: File) => { const fd = new FormData(); fd.set("file", file); return apiFetch<{ attachment: B2BAttachment }>(`/api/b2b/purchase-orders/${poId}/attachments`, { method: "POST", body: fd }); },
+  removeAttachment: (poId: string, attachmentId: string) => apiFetch(`/api/b2b/purchase-orders/${poId}/attachments/${attachmentId}`, { method: "DELETE" }),
+  /** Downloads a private attachment (auth header, never a public URL) and hands back an object URL plus its filename. */
+  downloadAttachment: async (poId: string, attachmentId: string, filename: string) => {
+    const res = await fetch(`${API_URL}/api/b2b/purchase-orders/${poId}/attachments/${attachmentId}`, { headers: { authorization: `Bearer ${getAccessToken() ?? ""}` }, credentials: "include" });
+    if (!res.ok) throw new Error(`Couldn't download ${filename} (${res.status})`);
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  },
   quotations: (status?: string) => list<B2BQuotation>("/quotations", { status }),
+  issueDraftQuotation: (id: string) => apiFetch<{ quotation: B2BQuotation }>(`/api/b2b/quotations/${id}/issue`, json("POST")),
+  discardDraftQuotation: (id: string) => apiFetch<{ quotation: B2BQuotation }>(`/api/b2b/quotations/${id}/discard`, json("POST")),
   orders: (status?: string) => list<B2BSalesOrder>("/orders", { status }),
   approveCredit: (id: string, reason: string) => apiFetch(`/api/b2b/orders/${id}/approve-credit`, json("POST", { reason })),
   allocate: (id: string) => apiFetch(`/api/b2b/orders/${id}/allocate`, json("POST")),
-  invoice: (id: string) => apiFetch(`/api/b2b/orders/${id}/invoice`, json("POST")),
+  release: (id: string) => apiFetch(`/api/b2b/orders/${id}/release`, json("POST")),
+  /** `lines` invoices only that subset (partial fulfilment); omitted, it invoices everything currently allocated. */
+  invoice: (id: string, lines?: { lineIndex: number; quantity: number }[]) => apiFetch<{ invoice: B2BInvoice }>(`/api/b2b/orders/${id}/invoice`, json("POST", lines ? { lines } : {})),
   cancelOrder: (id: string, reason: string) => apiFetch(`/api/b2b/orders/${id}/cancel`, json("POST", { reason })),
   invoices: (status?: string) => list<B2BInvoice>("/invoices", { status }),
   payments: (status?: string) => list<B2BPayment>("/payments", { status }),

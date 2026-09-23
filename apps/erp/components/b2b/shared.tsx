@@ -15,13 +15,17 @@ export const rupeesToPaise = (t: string) => (/^\d+(\.\d{1,2})?$/.test(t.replace(
 
 type Variant = "neutral" | "success" | "warning" | "danger" | "info";
 const TONES: Record<string, Variant> = {
-  DRAFT: "neutral", SUBMITTED: "info", UNDER_REVIEW: "info", QUOTED: "warning", NEGOTIATING: "warning", APPROVED: "success", REJECTED: "danger", CANCELLED: "neutral",
-  ISSUED: "warning", ACCEPTED: "success", REVISION_REQUESTED: "info", SUPERSEDED: "neutral", EXPIRED: "danger",
-  PENDING_CREDIT_APPROVAL: "danger", ALLOCATED: "info", INVOICED: "success",
+  // Purchase order / quotation
+  DRAFT: "neutral", SUBMITTED: "info", UNDER_REVIEW: "info", QUOTED: "warning", NEGOTIATION: "warning", APPROVED: "success", REJECTED: "danger", EXPIRED: "danger", CONVERTED: "success", CANCELLED: "neutral", SUPERSEDED: "neutral",
+  // Sales order
+  CONFIRMED: "success", PARTIALLY_ALLOCATED: "warning", ALLOCATED: "info", PARTIALLY_FULFILLED: "warning", FULFILLED: "success",
+  // Invoice / payment
   UNPAID: "warning", PARTIALLY_PAID: "info", PAID: "success", OVERDUE: "danger",
   PENDING_VERIFICATION: "warning", VERIFIED: "success", REVERSED: "danger",
 };
 export const Status = ({ s }: { s: string }) => <Badge variant={TONES[s] ?? "neutral"} data-testid="status">{s.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase())}</Badge>;
+/** A sales order's DRAFT means "held for credit approval" — a different, more urgent thing than a PO or quotation draft. */
+export const SoStatus = ({ s }: { s: string }) => (s === "DRAFT" ? <Badge variant="danger" data-testid="status">Held — credit approval</Badge> : <Status s={s} />);
 
 export const Th = ({ children, right }: { children?: React.ReactNode; right?: boolean }) => <th className={cn("whitespace-nowrap border-b border-border bg-surface-sunken px-3 py-2 text-caption font-semibold uppercase tracking-wide text-muted", right ? "text-right" : "text-left")}>{children}</th>;
 export const Td = ({ children, right, className }: { children?: React.ReactNode; right?: boolean; className?: string }) => <td className={cn("border-b border-border-subtle px-3 py-2.5 align-middle text-body-sm", right && "text-right tabular", className)}>{children}</td>;

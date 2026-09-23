@@ -7,7 +7,7 @@ import { PO_LABEL } from "../../../lib/status";
 import { usePurchaseOrders } from "../../../lib/queries";
 import { Empty, Failure, Loading, PageHead, StatusPill, TableWrap } from "../../../components/ui";
 
-const GROUPS: [string, string, string[] | null][] = [["all", "All", null], ["open", "Open", ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUOTED", "NEGOTIATING"]], ["approved", "Approved", ["APPROVED"]], ["closed", "Closed", ["REJECTED", "CANCELLED"]]];
+const GROUPS: [string, string, string[] | null][] = [["all", "All", null], ["open", "Open", ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUOTED", "NEGOTIATION"]], ["approved", "Approved / placed", ["APPROVED", "CONVERTED"]], ["closed", "Closed", ["REJECTED", "EXPIRED", "CANCELLED"]]];
 
 export default function PurchaseOrdersPage() {
   const q = usePurchaseOrders();

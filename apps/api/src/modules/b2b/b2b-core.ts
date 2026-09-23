@@ -124,6 +124,8 @@ export function priceFor(ctx: CustomerContext, hit: SkuHit, state: string | unde
     priced,
     price: {
       status: "AVAILABLE",
+      unitMaking: b.makingCharges,
+      unitDiscount: b.discount,
       unitTaxable: b.taxableValue,
       unitGst: b.totalTax,
       unitTotal: b.finalAmount,
@@ -224,9 +226,13 @@ export function lineOf(r: Resolved, concession?: B2BLine["concession"]): B2BLine
     ...(hit.variant && variantLabel(hit.variant) ? { variantLabel: variantLabel(hit.variant) } : {}),
     quantity: r.quantity,
     ...(p ? {} : { priceOnRequest: true }),
+    unitMaking: p?.unitMaking ?? 0,
+    unitDiscount: p?.unitDiscount ?? 0,
     unitTaxable: p?.unitTaxable ?? 0,
     unitGst: p?.unitGst ?? 0,
     unitTotal: p?.unitTotal ?? 0,
+    lineMaking: (p?.unitMaking ?? 0) * r.quantity,
+    lineDiscount: (p?.unitDiscount ?? 0) * r.quantity,
     lineTaxable: (p?.unitTaxable ?? 0) * r.quantity,
     lineGst: (p?.unitGst ?? 0) * r.quantity,
     lineTotal: (p?.unitTotal ?? 0) * r.quantity,
@@ -253,13 +259,15 @@ export async function paidByInvoice(invoiceIds: (Types.ObjectId | string)[], ses
 export async function creditFor(customerId: string | Types.ObjectId, ctx: Pick<CustomerContext, "profile" | "today">, session?: ClientSession): Promise<CreditPosition> {
   const invoices = await InvoiceModel.find({ customerId, status: "ISSUED" }).session(session ?? null).lean();
   const paid = await paidByInvoice(invoices.map((i) => i._id), session);
-  const committed = await SalesOrderModel.find({ customerId, status: { $in: ["APPROVED", "ALLOCATED"] } }).select("totals.total").session(session ?? null).lean();
+  // Promised, not yet invoiced: for every live order, what is left to invoice (an invoiced part is already in `invoices`).
+  const live = await SalesOrderModel.find({ customerId, status: { $in: ["CONFIRMED", "PARTIALLY_ALLOCATED", "ALLOCATED", "PARTIALLY_FULFILLED"] } }).select("lines invoiced").session(session ?? null).lean();
+  const committed = live.map((o) => o.lines.reduce((sum, l, i) => sum + (l.quantity - (o.invoiced.find((x) => x.lineIndex === i)?.quantity ?? 0)) * l.unitTotal, 0));
   return creditPosition({
     limit: ctx.profile.creditLimit,
     onHold: ctx.profile.creditHold,
     blockOnOverdue: ctx.profile.blockOnOverdue,
     invoices: invoices.map((i) => ({ balance: i.totals.total - (paid.get(id(i._id)) ?? 0), dueDate: i.dueDate })).filter((i) => i.balance > 0),
-    committedOrders: committed.map((o) => o.totals.total),
+    committedOrders: committed,
     today: ctx.today,
   });
 }

@@ -11,6 +11,7 @@ import { cancelOrder, checkoutKeys, startPayment, useOrder } from "../../lib/che
 import { formatDate, formatMoney, formatTime } from "../../lib/money";
 import { orderTokens } from "../../lib/order-session";
 import { OrderLines, Totals } from "./order-lines";
+import { ReturnsSection } from "./returns-section";
 
 /**
  * An order, as its customer sees it: what happened, what they bought at the price it was frozen at, and what they can still
@@ -107,6 +108,8 @@ export function OrderView({ orderNo }: { orderNo: string }) {
           <div className="flex flex-col gap-1 text-body-sm"><span className="eyebrow">Delivering to</span><span>{order.customer.fullName}<br />{order.shippingAddress.line1}{order.shippingAddress.line2 && <>, {order.shippingAddress.line2}</>}<br />{order.shippingAddress.city}, {order.shippingAddress.state} {order.shippingAddress.postalCode}</span>{order.delivery.estimate && <span className="text-muted">{order.delivery.label} · {order.delivery.estimate}</span>}</div>
         </aside>
       </div>
+
+      <ReturnsSection order={order} token={token} />
     </div>
   );
 }

@@ -38,7 +38,10 @@ export const MOVEMENT_RULES: Record<MovementType, MovementRule> = {
   MANUFACTURING_RECEIPT: { transitions: t("IN_MANUFACTURING", "AVAILABLE"), creates: true, destination: STOCK_LOCATION_TYPES },
   JOBWORK_ISSUE: { transitions: t("AVAILABLE", "WITH_JOB_WORKER"), destination: ["JOB_WORKER"] },
   JOBWORK_RECEIPT: { transitions: t("WITH_JOB_WORKER", "AVAILABLE"), creates: true, destination: STOCK_LOCATION_TYPES },
-  REPAIR_OUT: { transitions: t(["AVAILABLE", "DAMAGED"], "UNDER_REPAIR"), destination: ["REPAIR_CENTER"] },
+  // Pre-sale repair (our own stock, never sold yet) AND a customer bringing back something they
+  // already bought (SOLD) for servicing both go out the same door.
+  REPAIR_OUT: { transitions: t(["AVAILABLE", "DAMAGED", "SOLD"], "UNDER_REPAIR"), destination: ["REPAIR_CENTER"] },
+  // Pre-sale repair only: puts OUR stock back on the shelf. A customer's own piece never lands here — see REPAIR_RETURN.
   REPAIR_IN: { transitions: t("UNDER_REPAIR", "AVAILABLE"), destination: STOCK_LOCATION_TYPES },
   HALLMARKING_OUT: { transitions: t("AVAILABLE", "HALLMARKING"), destination: ["HALLMARKING_CENTER"] },
   HALLMARKING_IN: { transitions: t("HALLMARKING", "AVAILABLE"), destination: STOCK_LOCATION_TYPES },
@@ -46,6 +49,12 @@ export const MOVEMENT_RULES: Record<MovementType, MovementRule> = {
   ADJUSTMENT: { transitions: [], creates: true },
   SCRAP: { transitions: t(["AVAILABLE", "RETURNED", "DAMAGED", "UNDER_REPAIR", "IN_MANUFACTURING"], "SCRAP") },
   MELTING: { transitions: t(["AVAILABLE", "DAMAGED", "IN_MANUFACTURING", "SCRAP"], "MELTING") },
+  // Old jewellery taken in on an exchange — becomes ours, same shape as a purchase receipt.
+  EXCHANGE_IN: { transitions: [], creates: true, destination: STOCK_LOCATION_TYPES },
+  // A repair piece that wasn't already an InventoryItem — created straight into UNDER_REPAIR (see isCustomerOwned).
+  REPAIR_INTAKE: { transitions: [], creates: true, destination: ["REPAIR_CENTER"] },
+  // Hands a repaired piece back to whoever owns it. No destination: it is leaving our custody, not moving within it (like SALE).
+  REPAIR_RETURN: { transitions: [...t("UNDER_REPAIR", "SOLD"), ...t("UNDER_REPAIR", "RETURNED_TO_CUSTOMER")] },
 };
 
 export const isCreationMovement = (type: MovementType) => MOVEMENT_RULES[type].creates === true;

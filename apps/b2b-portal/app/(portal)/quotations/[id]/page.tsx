@@ -23,7 +23,8 @@ export default function QuotationPage() {
   if (q.isLoading) return <Loading rows={6} />;
   if (q.isError || !q.data) return <Failure error={q.error} retry={() => q.refetch()} />;
   const quote = q.data;
-  const live = quote.status === "ISSUED";
+  // NEGOTIATION means you've already sent a counter-offer and we're preparing a revised quotation — nothing more to do yet.
+  const live = quote.status === "QUOTED";
   const run = async (fn: () => Promise<unknown>, then?: () => void) => { setBusy(true); setError(undefined); try { await fn(); await qc.invalidateQueries({ queryKey: key.all }); then?.(); setMode("none"); } catch (e) { setError(e instanceof Error ? e.message : "That didn’t work."); } setBusy(false); };
   const requested = Object.entries(asks).flatMap(([sku, v]) => { const p = rupeesToPaise(v); return v.trim() && p ? [{ sku, unitTaxable: p }] : []; });
 
@@ -52,14 +53,16 @@ export default function QuotationPage() {
         <aside className="flex flex-col gap-4">
           <div className="card flex flex-col gap-3 p-4"><TotalsBox taxable={quote.totals.taxable} gst={quote.totals.gst} total={quote.totals.total} testId="quote-totals" /><p className="text-[0.75rem] text-muted">These prices are fixed for you until {date(quote.validUntil)}, whatever the metal rate does.</p></div>
           {quote.terms && <div className="card p-4 text-[0.8125rem]"><p className="label mb-1">Terms</p><p>{quote.terms}</p></div>}
+          {quote.status === "NEGOTIATION" && <p className="card p-4 text-[0.8125rem] text-muted" data-testid="negotiating">We’re preparing a revised quotation based on your counter-offer.</p>}
           {live && (
             <div className="flex flex-col gap-2">
-              <button className="btn btn-primary h-10" disabled={busy} onClick={() => run(async () => { const r = await acceptQuotation(quote.id); router.push(`/orders/${r.order.id}`); })} data-testid="accept-quote">Accept quotation</button>
+              <button className="btn btn-primary h-10" disabled={busy} onClick={() => run(async () => { await acceptQuotation(quote.id); router.push(`/purchase-orders/${quote.purchaseOrderId}`); })} data-testid="accept-quote">Accept quotation</button>
               <button className="btn btn-outline" disabled={busy} onClick={() => setMode("counter")} data-testid="counter-quote">Ask for changes</button>
               {mode !== "decline" ? <button className="btn btn-danger" onClick={() => setMode("decline")} data-testid="decline-quote">Decline</button> : <div className="card flex items-center justify-between gap-2 p-3" role="alertdialog" aria-label="Confirm decline"><span>Decline this quotation?</span><span className="flex gap-2"><button className="btn btn-danger btn-sm" disabled={busy} onClick={() => run(() => declineQuotation(quote.id))} data-testid="confirm-decline">Yes, decline</button><button className="btn btn-ghost btn-sm" onClick={() => setMode("none")}>Keep</button></span></div>}
             </div>
           )}
-          {quote.status === "ACCEPTED" && <Link href={`/purchase-orders/${quote.purchaseOrderId}`} className="btn btn-outline">View the order</Link>}
+          {quote.status === "APPROVED" && <Link href={`/purchase-orders/${quote.purchaseOrderId}`} className="btn btn-outline">View the purchase order</Link>}
+          {quote.status === "CONVERTED" && <Link href={`/purchase-orders/${quote.purchaseOrderId}`} className="btn btn-outline">View the order</Link>}
         </aside>
       </div>
     </>

@@ -20,6 +20,9 @@ export const MOVEMENT_TYPES = [
   "ADJUSTMENT",
   "SCRAP",
   "MELTING",
+  "EXCHANGE_IN",
+  "REPAIR_INTAKE",
+  "REPAIR_RETURN",
 ] as const;
 export const movementTypeSchema = z.enum(MOVEMENT_TYPES);
 
@@ -33,6 +36,9 @@ export const REFERENCE_TYPES = [
   "JOB_WORK_ORDER",
   "STOCK_TRANSFER",
   "ADJUSTMENT",
+  "RETURN",
+  "EXCHANGE",
+  "REPAIR_ORDER",
   "MANUAL",
 ] as const;
 export const referenceTypeSchema = z.enum(REFERENCE_TYPES);

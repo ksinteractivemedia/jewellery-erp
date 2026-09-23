@@ -17,6 +17,7 @@ export const inventoryStatusSchema = z.enum([
   "HALLMARKING",
   "SCRAP",
   "MELTING",
+  "RETURNED_TO_CUSTOMER",
 ]);
 
 /**
@@ -80,6 +81,10 @@ export const createInventoryItemSchema = z
     status: inventoryStatusSchema.default("AVAILABLE"),
     cost: zPaise,
     quantity: z.number().int().positive().default(1),
+    /** Set when a piece comes off the bench or back from a job worker — which order made it, so its origin is traceable without rejoining the ledger. */
+    manufacturingInfo: z.object({ productionOrderId: zId.optional(), jobWorkOrderId: zId.optional(), manufacturedDate: z.coerce.date().optional() }).optional(),
+    /** True only for a repair-intake piece the business never sold and does not own — see InventoryItem.isCustomerOwned. */
+    isCustomerOwned: z.boolean().default(false),
   })
   .refine((data) => data.stoneWeight <= data.grossWeight, {
     message: "stoneWeight cannot exceed grossWeight",

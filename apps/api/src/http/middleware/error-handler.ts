@@ -32,6 +32,8 @@ const STATUS_BY_CODE: Record<string, number> = {
   STOCK_SHORT: 409,
   SELF_VERIFICATION: 409,
   QUOTE_EXPIRED: 409,
+  OVER_RECEIPT: 409,
+  PURITY_MISMATCH: 409,
 };
 
 export const notFoundHandler: RequestHandler = (_req, res) => {

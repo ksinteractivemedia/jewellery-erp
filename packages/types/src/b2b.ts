@@ -28,13 +28,13 @@ export interface B2BProfile {
 }
 
 // ---- statuses -----------------------------------------------------------------------------------
-export const PURCHASE_ORDER_STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUOTED", "NEGOTIATING", "APPROVED", "REJECTED", "CANCELLED"] as const;
+export const PURCHASE_ORDER_STATUSES = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "QUOTED", "NEGOTIATION", "APPROVED", "REJECTED", "EXPIRED", "CONVERTED", "CANCELLED"] as const;
 export type PurchaseOrderStatus = (typeof PURCHASE_ORDER_STATUSES)[number];
 
-export const QUOTATION_STATUSES = ["ISSUED", "ACCEPTED", "REVISION_REQUESTED", "SUPERSEDED", "REJECTED", "EXPIRED"] as const;
+export const QUOTATION_STATUSES = ["DRAFT", "QUOTED", "NEGOTIATION", "APPROVED", "REJECTED", "EXPIRED", "CONVERTED", "SUPERSEDED"] as const;
 export type QuotationStatus = (typeof QUOTATION_STATUSES)[number];
 
-export const SALES_ORDER_STATUSES = ["PENDING_CREDIT_APPROVAL", "APPROVED", "ALLOCATED", "INVOICED", "CANCELLED"] as const;
+export const SALES_ORDER_STATUSES = ["DRAFT", "CONFIRMED", "PARTIALLY_ALLOCATED", "ALLOCATED", "PARTIALLY_FULFILLED", "FULFILLED", "CANCELLED"] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
 
 export const B2B_PAYMENT_METHODS = ["BANK_TRANSFER", "NEFT", "RTGS", "IMPS", "CHEQUE", "CASH", "OTHER"] as const;
@@ -52,7 +52,7 @@ export type PriceBasis = "CUSTOMER" | "CUSTOMER_GROUP" | "PRICE_LIST" | "CATEGOR
 export type B2BPriceUnavailableReason = "POLICY" | "NO_WEIGHT" | "STONE_VALUE_MISSING" | "NO_METAL_RATE" | "PRICING_NOT_CONFIGURED";
 
 export type B2BPrice =
-  | { status: "AVAILABLE"; unitTaxable: Paise; unitGst: Paise; unitTotal: Paise; basis: PriceBasis; basisName?: string; ratePerGram: Paise; computedAt: string }
+  | { status: "AVAILABLE"; unitMaking: Paise; unitDiscount: Paise; unitTaxable: Paise; unitGst: Paise; unitTotal: Paise; basis: PriceBasis; basisName?: string; ratePerGram: Paise; computedAt: string }
   | { status: "ON_REQUEST"; reason: B2BPriceUnavailableReason; message: string };
 
 // ---- document lines ------------------------------------------------------------------------------
@@ -66,15 +66,20 @@ export interface B2BLine {
   quantity: number;
   /** True when this line has no price yet (price on request): the amounts below are 0 and the seller must quote it. */
   priceOnRequest?: boolean;
+  /** Per unit, all integer paise. Taxable = metal + wastage + making + stones − discount; total = taxable + GST. */
+  unitMaking: Paise;
+  unitDiscount: Paise;
   unitTaxable: Paise;
   unitGst: Paise;
   unitTotal: Paise;
+  lineMaking: Paise;
+  lineDiscount: Paise;
   lineTaxable: Paise;
   lineGst: Paise;
   lineTotal: Paise;
   basis?: PriceBasis;
   /** A negotiated concession, as the seller entered it. Everything else on the line is the pricing engine's. */
-  concession?: { kind: "PERCENT" | "TARGET_PRICE"; value: number; note?: string };
+  concession?: { kind: "PERCENT" | "TARGET_PRICE"; value: number; note?: string; /** The standard (list) unit price before the concession, before GST. */ listUnitTaxable?: Paise };
   /** The frozen price behind this line, once it is a commercial commitment (quotation onwards). */
   priceSnapshotId?: Id;
 }
@@ -133,6 +138,16 @@ export interface B2BHistoryEntry {
   note?: string;
 }
 
+export interface B2BAttachment {
+  id: Id;
+  name: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+  uploadedBy: "CUSTOMER" | "SELLER";
+  uploadedByName?: string;
+}
+
 export interface B2BPurchaseOrder {
   id: Id;
   poNo: string;
@@ -142,8 +157,12 @@ export interface B2BPurchaseOrder {
   lines: B2BLine[];
   totals: B2BTotals;
   shippingAddress: Address;
+  billingAddress: Address;
   notes?: string;
   requestedDeliveryDate?: string;
+  attachments: B2BAttachment[];
+  /** What was agreed (prices, making charges, discount, tax, total) — set when the PO is approved, and what the sales order is made from. */
+  approved?: { lines: B2BLine[]; totals: B2BTotals; approvedAt: string; approvedByName?: string; via: "QUOTATION" | "DIRECT" };
   /** The credit position when it was submitted, so the customer sees the same warning the seller does. */
   credit?: CreditCheck;
   quotationId?: Id;
@@ -185,13 +204,15 @@ export interface B2BSalesOrder {
   customer: { id: Id; name: string };
   status: SalesOrderStatus;
   lines: B2BLine[];
+  /** Per line: how many pieces are held for it, and how many have been invoiced (sold). */
+  progress: { sku: string; quantity: number; allocated: number; invoiced: number }[];
   totals: B2BTotals;
   shippingAddress: Address;
+  billingAddress: Address;
   credit: { check: CreditCheck; override?: { reason: string; at: string; byName?: string } };
   shortfall?: { sku: string; name: string; wanted: number; available: number }[];
   allocatedAt?: string;
-  invoiceId?: Id;
-  invoiceNo?: string;
+  invoices: { id: Id; invoiceNo: string; total: Paise }[];
   history: B2BHistoryEntry[];
   createdAt: string;
 }
@@ -209,6 +230,8 @@ export interface B2BAllocationView {
 export interface B2BInvoice {
   id: Id;
   invoiceNo: string;
+  /** 1 for a sales order's first invoice, 2 for its second, and so on — a sales order can be invoiced across several. */
+  sequence: number;
   salesOrderId: Id;
   soNo: string;
   customer: { id: Id; name: string; gstin?: string };
@@ -218,6 +241,7 @@ export interface B2BInvoice {
   totals: B2BTotals;
   taxes: B2BTaxSplit;
   shippingAddress: Address;
+  billingAddress: Address;
   /** Derived from verified, unreversed allocations — never stored. */
   paid: Paise;
   balance: Paise;

@@ -12,7 +12,7 @@ import { createTaxonomyService } from "../modules/catalog/taxonomy.service";
 import { createVariantService } from "../modules/catalog/variant.service";
 import { createDashboardService, type DashboardProviders } from "../modules/dashboard";
 import { createMediaService } from "../modules/media/media.service";
-import { createB2BModule } from "../modules/b2b";
+import { createB2BModule, createLocalDiskDocumentStorage, type DocumentStorage } from "../modules/b2b";
 import { createOrdersModule, type PaymentProvider } from "../modules/orders";
 import { createStorefrontService } from "../modules/storefront/storefront.service";
 import { createPricingPreviewService } from "../modules/pricing/pricing-preview.service";
@@ -32,7 +32,14 @@ import { createDashboardRouter } from "./routes/dashboard.routes";
 import { createInventoryRouter } from "./routes/inventory.routes";
 import { createMediaRouter } from "./routes/media.routes";
 import { createPricingRouter } from "./routes/pricing.routes";
+import { createAccountingRouter } from "./routes/accounting.routes";
+import { createHallmarkingRouter } from "./routes/hallmarking.routes";
+import { createManufacturingRouter } from "./routes/manufacturing.routes";
 import { createProductsRouter } from "./routes/products.routes";
+import { createPurchasingRouter } from "./routes/purchasing.routes";
+import { createReturnsRouter } from "./routes/returns.routes";
+import { createExchangeRouter } from "./routes/exchange.routes";
+import { createRepairRouter } from "./routes/repair.routes";
 import { createRolesRouter } from "./routes/roles.routes";
 import { createStorefrontRouter } from "./routes/storefront.routes";
 import { createTaxonomyRouter } from "./routes/taxonomy.routes";
@@ -47,10 +54,12 @@ export interface AppDeps {
   dashboardProviders?: DashboardProviders;
   /** Payment gateway adapters. None in production until a real one exists, so paying says "not available" instead of pretending; dev-memory and tests register the sandbox. */
   paymentProviders?: readonly PaymentProvider[];
+  /** Where private documents (PO attachments) live. Defaults to a private folder under the media directory; tests inject memory. */
+  documentStorage?: DocumentStorage;
 }
 
 /** Builds the Express app without listening — so tests drive it in-process and server.ts owns the socket. */
-export function createApp({ config, emailSender, mediaStorage, dashboardProviders, paymentProviders }: AppDeps): Express {
+export function createApp({ config, emailSender, mediaStorage, dashboardProviders, paymentProviders, documentStorage }: AppDeps): Express {
   const app = express();
   app.disable("x-powered-by");
   if (config.trustProxy) app.set("trust proxy", 1);
@@ -90,10 +99,17 @@ export function createApp({ config, emailSender, mediaStorage, dashboardProvider
   app.use("/api/media", createMediaRouter({ authenticate, media }));
   const ordersModule = createOrdersModule({ config, media, paymentProviders });
   app.locals.orders = ordersModule;
-  const b2b = createB2BModule({ media });
+  const b2b = createB2BModule({ media, documents: documentStorage ?? createLocalDiskDocumentStorage(`${config.media.dir}/private`) });
   app.locals.b2b = b2b;
   app.use("/api/portal", createPortalRouter({ authenticate, b2b, writeLimiter: limiters.storefrontWrite }));
   app.use("/api/b2b", createB2BAdminRouter({ authenticate, b2b }));
+  app.use("/api/purchasing", createPurchasingRouter({ authenticate }));
+  app.use("/api/manufacturing", createManufacturingRouter({ authenticate }));
+  app.use("/api/hallmarking", createHallmarkingRouter({ authenticate }));
+  app.use("/api/returns", createReturnsRouter({ authenticate }));
+  app.use("/api/exchange", createExchangeRouter({ authenticate }));
+  app.use("/api/repair", createRepairRouter({ authenticate }));
+  app.use("/api/accounting", createAccountingRouter({ authenticate }));
   app.use("/api/store", createCheckoutRouter({ orders: ordersModule, writeLimiter: limiters.storefrontWrite, optionalAuthenticate }));
   app.use("/api/store", createStorefrontRouter({ storefront: createStorefrontService({ media }), writeLimiter: limiters.storefrontWrite }));
   app.use("/api/dashboard", createDashboardRouter({ authenticate, dashboard: createDashboardService({ providers: dashboardProviders }) }));

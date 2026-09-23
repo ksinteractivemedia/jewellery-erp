@@ -16,6 +16,7 @@ import { createMediaService } from "../src/modules/media/media.service";
 import { createMemoryStorage } from "../src/modules/media/storage";
 import { ConsoleEmailSender } from "../src/modules/auth/email";
 import { syncRbac } from "../src/modules/auth/rbac/rbac-sync";
+import { syncChartOfAccounts } from "../src/modules/accounting/chart-of-accounts.service";
 import { RoleModel } from "../src/modules/auth/role.model";
 import { createUser } from "../src/modules/auth/user.service";
 
@@ -30,6 +31,7 @@ const PASSWORD = "Demo-Password-123";
 const replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
 await mongoose.connect(replSet.getUri(), { dbName: "jewellery-erp-dev" });
 await syncRbac();
+await syncChartOfAccounts();
 
 const demoUserIds = new Map<string, string>();
 for (const name of ALL_ROLE_NAMES) {
@@ -78,6 +80,8 @@ console.log(`[dev-memory] payments: SANDBOX gateway (hosted page on :${SANDBOX_P
 
 const app = createApp({ config, emailSender: new ConsoleEmailSender(), mediaStorage, dashboardProviders, paymentProviders: [sandbox] });
 startOrderExpirySweep((app.locals.orders as OrdersModule).orders, 15_000);
+
+setInterval(() => (app.locals.b2b as B2BModule).procurement.expireStale().catch(() => undefined), 15_000).unref();
 
 // Wholesale: two accounts with buyer logins and documents in every stage, made through the real services.
 const staffActor = (role: string, name: string) => ({ id: demoUserIds.get(role)!, name, email: `${role.toLowerCase().replace(/_/g, ".")}@demo.test`, kind: "SELLER" as const });

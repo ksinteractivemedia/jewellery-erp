@@ -23,7 +23,13 @@ export type MovementType =
   | "ADJUSTMENT"
   | "SCRAP"
   /** Not in the original brief but required: MELTING is a status with no other way to reach it. */
-  | "MELTING";
+  | "MELTING"
+  /** Old jewellery taken in on an exchange becomes ours (RAW_MATERIAL, pending appraisal/melt) — a creation movement like PURCHASE_RECEIPT, but sourced from a customer trade-in, not a supplier. */
+  | "EXCHANGE_IN"
+  /** Repair intake for a piece that isn't already an InventoryItem (see `isCustomerOwned`) — creates it directly into UNDER_REPAIR, since it was never AVAILABLE stock to begin with. */
+  | "REPAIR_INTAKE"
+  /** Hands a repaired piece back to whoever owns it: our own previously-sold piece returns to SOLD (still theirs, just serviced); a customer-owned piece created by REPAIR_INTAKE ends at RETURNED_TO_CUSTOMER. Deliberately separate from REPAIR_IN, which puts OUR pre-sale stock back on the shelf (AVAILABLE) — a customer's repaired piece must never land there. */
+  | "REPAIR_RETURN";
 
 export type ReferenceType =
   | "ORDER"
@@ -35,6 +41,9 @@ export type ReferenceType =
   | "JOB_WORK_ORDER"
   | "STOCK_TRANSFER"
   | "ADJUSTMENT"
+  | "RETURN"
+  | "EXCHANGE"
+  | "REPAIR_ORDER"
   | "MANUAL";
 
 /**

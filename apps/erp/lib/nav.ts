@@ -5,6 +5,7 @@ import {
   BarChart3,
   BookOpen,
   Boxes,
+  Building2,
   Calculator,
   ClipboardList,
   FolderTree,
@@ -12,13 +13,16 @@ import {
   CreditCard,
   Diamond,
   Factory,
+  FileMinus,
   FileSignature,
   FileText,
   Gem,
   Hammer,
+  Landmark,
   Layers,
   LayoutDashboard,
   PackageCheck,
+  Receipt,
   Repeat,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -61,8 +65,8 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "Orders", href: "/sales/orders", icon: ClipboardList, permission: P.SALES_VIEW },
       { label: "Invoices", href: "/sales/invoices", icon: FileText, permission: P.SALES_VIEW },
-      { label: "Returns", href: "/sales/returns", icon: Undo2, permission: P.SALES_VIEW },
-      { label: "Exchanges", href: "/sales/exchanges", icon: Repeat, permission: P.SALES_VIEW },
+      { label: "Returns", href: "/sales/returns", icon: Undo2, permission: P.RETURNS_VIEW, ownsHeader: true },
+      { label: "Exchanges", href: "/sales/exchanges", icon: Repeat, permission: P.EXCHANGE_VIEW, ownsHeader: true },
     ],
   },
   {
@@ -90,9 +94,11 @@ export const NAV: NavGroup[] = [
   {
     label: "Purchasing",
     items: [
+      { label: "Dashboard", href: "/purchasing", icon: LayoutDashboard, permission: P.PURCHASING_VIEW, ownsHeader: true },
       { label: "Suppliers", href: "/purchasing/suppliers", icon: Factory, permission: P.PURCHASING_VIEW },
       { label: "Purchase Orders", href: "/purchasing/purchase-orders", icon: ClipboardList, permission: P.PURCHASING_VIEW },
       { label: "Goods Receipts", href: "/purchasing/goods-receipts", icon: PackageCheck, permission: P.PURCHASING_VIEW },
+      { label: "Outstanding", href: "/purchasing/outstanding", icon: Wallet, permission: P.PURCHASING_VIEW },
     ],
   },
   {
@@ -101,6 +107,14 @@ export const NAV: NavGroup[] = [
       { label: "Production Orders", href: "/production/orders", icon: ClipboardList, permission: P.PRODUCTION_VIEW },
       { label: "Job Work", href: "/production/job-work", icon: Hammer, permission: P.PRODUCTION_VIEW },
       { label: "Quality Control", href: "/production/quality-control", icon: BadgeCheck, permission: P.PRODUCTION_VIEW },
+      { label: "Reconciliation", href: "/production/reconciliation", icon: AlertTriangle, permission: P.PRODUCTION_VIEW },
+    ],
+  },
+  {
+    label: "Hallmarking",
+    items: [
+      { label: "Dashboard", href: "/hallmarking", icon: ShieldCheck, permission: P.INVENTORY_VIEW, ownsHeader: true },
+      { label: "Assaying Centres", href: "/hallmarking/centres", icon: Building2, permission: P.INVENTORY_VIEW },
     ],
   },
   {
@@ -119,12 +133,20 @@ export const NAV: NavGroup[] = [
     items: [{ label: "Stone Inventory", href: "/stones/inventory", icon: Diamond, permission: P.INVENTORY_VIEW }],
   },
   {
+    label: "Accounting",
     items: [
-      { label: "Hallmarking", href: "/hallmarking", icon: ShieldCheck, permission: P.INVENTORY_VIEW },
-      { label: "Repairs", href: "/repairs", icon: Wrench, permission: P.SALES_VIEW },
+      { label: "Receivables", href: "/accounting", icon: Wallet, permission: P.ACCOUNTING_VIEW, ownsHeader: true },
+      { label: "General Ledger", href: "/accounting/ledger", icon: BookOpen, permission: P.ACCOUNTING_VIEW, ownsHeader: true },
+      { label: "Chart of Accounts", href: "/accounting/chart-of-accounts", icon: Landmark, permission: P.ACCOUNTING_VIEW, ownsHeader: true },
+      { label: "Credit Notes", href: "/accounting/credit-notes", icon: Receipt, permission: P.ACCOUNTING_VIEW, ownsHeader: true },
+      { label: "Debit Notes", href: "/accounting/debit-notes", icon: FileMinus, permission: P.ACCOUNTING_VIEW, ownsHeader: true },
+    ],
+  },
+  {
+    items: [
+      { label: "Repairs", href: "/repairs", icon: Wrench, permission: P.REPAIR_VIEW, ownsHeader: true },
       { label: "Customers", href: "/customers", icon: Users, permission: P.CUSTOMERS_VIEW },
       { label: "Reports", href: "/reports", icon: BarChart3, permission: P.REPORTS_VIEW },
-      { label: "Accounting", href: "/accounting", icon: Wallet, permission: P.ACCOUNTING_VIEW },
       { label: "Settings", href: "/settings", icon: SettingsIcon, permission: P.SETTINGS_MANAGE_USERS },
     ],
   },

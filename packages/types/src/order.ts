@@ -36,7 +36,7 @@ export interface PriceSnapshot {
   id: Id;
   /** The commercial document this price belongs to (a B2C order, a B2B quotation or sales order). */
   orderId: Id;
-  documentType?: "ORDER" | "B2B_QUOTATION" | "B2B_SALES_ORDER";
+  documentType?: "ORDER" | "B2B_QUOTATION" | "B2B_APPROVAL" | "B2B_SALES_ORDER";
   productId: Id;
   variantId?: Id;
   sku: string;
@@ -133,6 +133,8 @@ export interface StoreCheckoutVerification {
 }
 
 export interface StoreOrderItem {
+  /** The order's own line id — opaque, but what a return request names (see StoreOrder.canReturn). */
+  id: Id;
   slug: string;
   variantSku?: string;
   sku: string;

@@ -27,6 +27,7 @@ export async function toStoreOrder(order: OrderDocument, payment: PaymentLike | 
       const snap = snapshots.get(String(i.priceSnapshotId));
       const inputs = snap?.inputs as { metalName: string; purity: string; netWeight: number; ratePerGram: number; rateEffectiveFrom: string } | undefined;
       return {
+        id: String(i._id),
         slug: i.slug,
         ...(i.variantSku ? { variantSku: i.variantSku } : {}),
         sku: i.sku,

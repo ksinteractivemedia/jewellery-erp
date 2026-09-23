@@ -216,9 +216,139 @@ Versionable, effective-dated (this phase's explicit requirement).
 - Index: `{ code: 1, version: 1 }` unique.
 - **Versioning contract:** editing a live price list never mutates it. `createNewVersion(code, effectiveFrom)` atomically closes the current version (`effectiveTo = new effectiveFrom`) and inserts `version + 1` in one session. `findCurrentPriceList(code, asOf)` is the one read path anything should use to resolve "the price list in effect right now."
 
+## 7A. Procurement — **implemented** (Phase 5)
+
+`apps/api/src/modules/procurement`. Like B2B (§7's sibling document, business-rules.md §12), every status change is a named, checked action (`procurement-status.ts`) — nothing writes a status directly.
+
+### `purchaserequisitions`
+An internal ask, raised before a supplier is even chosen for some lines.
+- `prNo` (`PR-000123`), `status` (`DRAFT | SUBMITTED | APPROVED | REJECTED | CONVERTED | CANCELLED`), `requestedById`/`requestedByName`, `department?`, `reason`, `lines[]` (see below), `totals`, `purchaseOrderId?` (set when converted), `rejectedReason?`, `history[]`.
+- Not frozen: a `DRAFT` requisition's lines/reason may be replaced wholesale (`updateDraftRequisition`) up to submission.
+
+### `purchaseorders` (supplier purchase orders — distinct from B2B's own `PurchaseOrder`, the customer's ask to us)
+- `poNo` (`SPO-000123`), `status` (`DRAFT | SUBMITTED | APPROVED | PARTIALLY_RECEIVED | RECEIVED | CANCELLED`), `supplierId`/`supplierName`/`supplierGstin` (snapshot), `requisitionId?`, `lines[]`, `totals`, `deliveryLocationId`/`deliveryLocationName`, `billingAddress?`, `expectedDeliveryDate?`, `notes?`, `approvedAt`/`approvedByName`, `rejectedReason?`, `cancelledReason?`, `goodsReceiptIds[]`, `supplierInvoiceIds[]`, `history[]`.
+- `PARTIALLY_RECEIVED`/`RECEIVED` are **derived** from the lines' own received-so-far figures (`purchaseOrderStatusFor`), applied through the named `receive` action like B2B's sales-order allocate/invoice — never set directly.
+- Cancelling before receipt is clean; cancelling a `PARTIALLY_RECEIVED` order closes out what's left as `CANCELLED` — the goods already received (and their `InventoryItem`s) are untouched, never reversed.
+
+### Purchase line (embedded on a requisition and a purchase order)
+`purchaseType` (`GOLD | SILVER | PLATINUM | STONE | FINISHED_JEWELLERY | RAW_MATERIAL | CONSUMABLE`), `description`, `productId?`/`variantId?`, `metalId?`/`purity?`/`fineness?` (required for every type but `CONSUMABLE` — a line always says what metal/purity it is before it's ever received), `quantity`, `grossWeight?` (the ordered total — required and authoritative for a *weight-tracked* type: gold/silver/platinum/raw material/stone), `ratePerGram?`/`ratePerUnit?`, `value` (`fineWeight × ratePerGram`, or `ratePerUnit × quantity` — computed server-side, never accepted as input; deliberately not `packages/pricing-engine`, which resolves a *sales* price through the rule hierarchy, not what we agreed to pay a supplier), `lotNumber?`, `notes?`, `receivedQuantity`/`receivedGrossWeight` (cumulative across every posted receipt).
+
+### `goodsreceipts` — **append-only**
+Receiving stock always creates a real `InventoryItem` (or several) and a `PURCHASE_RECEIPT` ledger entry, in the same inventory transaction as the receipt document and the purchase order's updated received-so-far figures and status — business-rules.md §2.1's rule applies here exactly as it does to a sale. A `CONSUMABLE` line is recorded on the receipt but creates no `InventoryItem` (it has no weight/purity/fineness — never forced into a metal-piece shape it doesn't have; a documented simplification, the same kind `StoneInventory` already carries in §5).
+- `grnNo` (`GRN-000123`), `purchaseOrderId`/`poNo`, `supplierId`/`supplierName`, `receivedDate`, `lines[]`, `notes?`, `receivedById`/`receivedByName`.
+- A line: `purchaseOrderLineIndex`, the purchase-type/description/metal/purity snapshot, `quantity`, `grossWeight?` (the scale reading), `expectedGrossWeight?` (what the delivery note said to expect for *this* shipment — separate from the line's full ordered total, since one line can arrive across several receipts), `fineWeight?` (derived), `value`, `lotNumber?`, `locationId`, `hasWeightDiscrepancy`/`variancePercent?`/`discrepancyNote?`, `inventoryItemIds[]`.
+- **Business rules, enforced before anything is written:** receiving beyond what is still outstanding on a line is refused (`OVER_RECEIPT`, 409); receiving at a purity that doesn't match the order is refused (`PURITY_MISMATCH`, 409); a scale reading more than 2% off a *stated* `expectedGrossWeight` is refused unless a `discrepancyNote` explains it, in which case it is posted as weighed and flagged — a genuine partial receipt with no stated expectation is never flagged, since there is nothing to compare it against. Once posted, a goods receipt is never reversed or edited: it is a historical fact about what physically arrived (the same principle as the ledger it feeds). A supplier return, if the business needs one later, is a new movement, not an edit to this one.
+
+### `supplierinvoices`
+The supplier's own bill — `supplierInvoiceNo` is their number, not our sequence, and is unique per supplier (the same paper invoice can't be entered twice). `supplierId`/`supplierName`/`supplierGstin`, `purchaseOrderId?`/`poNo?`, `goodsReceiptIds[]`, `invoiceDate`, `dueDate`, `lines[]` (a purchase line minus its receipt-progress fields), `totals` (`subtotal`, `taxAmount`, `total`), `cancelledAt?`/`cancelledReason?`, `history[]`, `allocationSeq` (bumped by every allocation so two racing for one invoice conflict rather than both reading a stale balance — B2B's own `Invoice.allocationSeq` pattern). **`PAID`/`PARTIALLY_PAID`/`UNPAID` are never stored** — derived from unreversed `supplierpaymentallocations` on every read, exactly like B2B's invoices. Frozen at the Mongoose layer except `cancelledAt`/`cancelledReason`/`history`/`allocationSeq`; cancellable only while nothing has been paid against it.
+
+### `supplierpayments`, `supplierpaymentallocations`
+Money paid *out*. Simpler than B2B's customer payments (no maker–checker): whoever holds `accounting.create_payment` records it, and the record itself plus the audit log are the control — it is immediately available to allocate, and can be reversed (a stopped cheque, a mis-entry).
+- **Payment:** `paymentNo` (`SPY-000123`), `status` (`RECORDED | REVERSED`), `supplierId`/`supplierName`, `method` (7 offline methods, same vocabulary as B2B), `amount`, `paidDate`, `reference?`, `bankName?`, `notes?`, `recordedById`/`recordedByName`, `reversedReason?`/`reversedAt?`, `allocationSeq`.
+- **Allocation:** `paymentId`/`paymentNo`, `supplierInvoiceId`/`supplierInvoiceNo`, `supplierId`, `amount`, `createdById`/`createdByName`, `reversedAt?`/`reversedReason?` — amounts and parties frozen; only the reversal fields change. Reversing a payment reverses every unreversed allocation it made in the same transaction, so every invoice it touched is owed again automatically (nothing to recompute).
+
+## 7B. Manufacturing & job work — **implemented** (Phase 6)
+
+`apps/api/src/modules/manufacturing`. The same explicit-action discipline as B2B (§12) and procurement (§14): every status change is a named, checked action (`manufacturing-status.ts`); no stock ever moves except through a real `InventoryLedger` entry (§2.1) — issuing material, receiving a finished piece, and returning unused material are each posted through the ledger, never a direct quantity edit.
+
+### `bom` (embedded on a production order and a job work order, not its own collection)
+What the order is meant to consume, fixed at creation: `metalId`, `purity`, `fineness` (snapshot), `expectedGrossWeight`, `expectedWastage`, `stonesRequired[]` (the shared stone-detail shape), `notes?`.
+
+### `productionorders`
+Production Order → Material Issue → Manufacturing → QC → Finished Jewellery → Inventory, as explicit statuses: `DRAFT | MATERIAL_ISSUED | IN_PROGRESS | QC_PENDING | QC_PASSED | QC_FAILED | COMPLETED | CANCELLED` (`QC_FAILED` can go back to `IN_PROGRESS` for rework).
+- `productionOrderNo` (`MO-000123`), `productId`/`variantId?`/`designName`/`sku` (snapshot), `quantity`, `bom`, `locationId`/`locationName` (must be a `MANUFACTURING_UNIT` location), `issuedItems[]` (each a real `InventoryItem` reference plus its weight *and the location it came from*, so a return knows where to send it back), `issuedGrossWeight`, `actualGrossWeight?`/`actualWastage?`/`labourCost?` (recorded at QC submission), `qc?` (`PASSED`/`FAILED`, notes, who, when), `finishedItems[]`, `returnedItems[]`, `reconciliation?`, `history[]`.
+- **Material issue** picks one or more *whole* `AVAILABLE` items (a batch is never split by this module — see the note on `postInSession`'s weight-delta semantics in manufacturing-core.ts; splitting a batch would incorrectly flip the status of the un-issued remainder too, since it's the same document) and posts them as `MANUFACTURING_ISSUE` (`AVAILABLE → IN_MANUFACTURING`, destination a `MANUFACTURING_UNIT`).
+- **Completing** a `QC_PASSED` order creates the finished piece(s) — a real `InventoryItem` each (`FINISHED_JEWELLERY`, `manufacturingInfo.productionOrderId` set, `MANUFACTURING_RECEIPT`, `creates: true`) — and, for whichever issued items were never consumed, returns them whole to `AVAILABLE` at the location they were issued *from* (`MANUFACTURING_RECEIPT` again, but on the existing item — its destination must be a real stock location, `STORE`/`WAREHOUSE`/`COUNTER`/`VAULT`, never the manufacturing unit itself).
+- **Cancelling** a `MATERIAL_ISSUED`/`IN_PROGRESS`/`QC_FAILED` order returns whatever is still `IN_MANUFACTURING` to stock in the same action — nothing is ever left dangling.
+
+### `jobworkorders`
+Issue to a vendor → return (finished goods / unused material / wastage / discrepancy): `DRAFT | ISSUED | PARTIALLY_RETURNED | RETURNED | CANCELLED`.
+- `jobWorkOrderNo` (`JW-000123`), `vendorId`/`vendorName` (a `Supplier` — a job worker is a supplier, no separate vendor model), `productId?`/`designName?`, `issueDate`/`dueDate`, `bom`, `makingCharges`, `expectedOutputDescription?`, `locationId`/`locationName` (must be a `JOB_WORKER` location), `deliveryAddress?`, `issuedItems[]`, `issuedGrossWeight`, `finishedItems[]`, `returnedItems[]`, `reconciliation?`, `history[]`.
+- **A return is one or more events**, not a single all-at-once step: each may carry finished pieces, unused items returned, and/or a wastage figure, and is marked `final: true` only when nothing more is coming back — the order derives `PARTIALLY_RETURNED` vs `RETURNED` from that flag (not from weight-matching, which would be fragile: a partial return legitimately hasn't accounted for everything yet, and that is not the same thing as a discrepancy).
+- The five reconciliation figures accumulate across every return event; **a discrepancy is only checked (and only then must carry a note) on the `final` return** — the one where "everything should now be accounted for" actually means something.
+
+### Material reconciliation (`reconciliation`, embedded on both order types — the shape behind the Reconciliation screen)
+`issuedGrossWeight`, `returnedGrossWeight`, `finishedGrossWeight`, `wastageGrossWeight`, `discrepancyGrossWeight` (`issued − returned − finished − wastage`; negative means more came back than went out — never silently clamped to zero), `hasDiscrepancy` (beyond a fixed small tolerance for scale rounding, not a percentage), `discrepancyNote?`. A discrepancy beyond tolerance is refused without a note and flagged once one is given — the same discipline as procurement's goods-receipt weight check (§14.4).
+
+## 7C. Hallmarking — **implemented** (Phase 7)
+
+`apps/api/src/modules/hallmarking`. The same explicit-action discipline as every workflow module above (§7A's `procurement-status.ts`, §7B's `manufacturing-status.ts`): every batch status change is a named, checked action (`hallmarking-status.ts`); every physical movement is a real `InventoryLedger` entry (§2.1), never a direct status/location edit.
+
+### `assayingcentres`
+Reference/master data — a new BIS-recognised centre, or one that's closed, is a data change, never a code change (CLAUDE.md's compliance-as-configuration rule, applied here to *where* hallmarking happens rather than *what the tax rate is*).
+- `name`, `code` (unique), `bisRegistrationNumber?`, `locationId`/`locationName` (must reference a `HALLMARKING_CENTER`-type location), `address?`, `contactPhone?`/`contactEmail?`, `isActive`.
+
+### `hallmarkingbatches`
+Inventory Item → Send to Hallmarking → In Transit → At Hallmarking Centre → Received, as the batch's own shared statuses (`PENDING | IN_TRANSIT | AT_CENTRE | RECEIVED | CANCELLED`) — the whole shipment travels together. Verified/Failed are **per-piece outcomes** once the batch is back, not batch statuses: a shipment of ten pieces can come back with eight verified and two failed at the same time. A line's *effective status* (what every screen and the dashboard show) is its own outcome once it has one, otherwise the batch's shared stage — never stored, always derived (`hallmarking-views.ts`).
+- `hallmarkingNo` (`HM-000123`), `status`, `assayingCentreId`/`assayingCentreName` (snapshot), `sentDate?`, `expectedReturnDate?`, `notes?`, `lines[]`, `history[]`.
+- A line: `itemId`/`itemCode`, `purity`/`grossWeight` (snapshot at dispatch — a later purity-table correction never rewrites a past request), `fromLocationId` (where the piece lived before it was sent — a return goes back *there*, never into the centre's own location, which isn't a stock location, mirroring §7B's `issuedItems[].fromLocationId`), `huid?`, `certificateNumber?`, `hallmarkDate?`, `outcome?` (`VERIFIED | FAILED`), `failureReason?`.
+- **Dispatch** posts every line as `HALLMARKING_OUT` (`AVAILABLE → HALLMARKING`, destination the centre's own location) in one ledger transaction. **Receive** posts `HALLMARKING_IN` (`HALLMARKING → AVAILABLE`, back to each piece's own `fromLocationId`) and, for whichever pieces the centre actually marked, records the HUID/certificate/date; **every piece on the batch must be receipted together** — a receive naming only some of a batch's pieces is refused (409), since nothing else would move the omitted pieces out of `HALLMARKING` and the batch would wrongly read `RECEIVED` regardless. **Cancel** is PENDING-only — nothing has physically moved yet, so there is nothing to reverse.
+- **The HUID is unique where applicable** (business-rules.md §16): enforced by the same rule everywhere a HUID is ever set on an `InventoryItem` (`inventory-transaction.service.ts`, shared with the identifiers-edit path elsewhere in inventory) — never re-implemented per module. Stored uppercase, so `ab12cd` and `AB12CD` collide as the same mark.
+- A piece can only be `verify`d or `fail`ed once (`checkLineOutcome`): not before the batch is `RECEIVED`, and never a second time once decided.
+
+### `InventoryItem.huid` / `hallmarkStatus` (existing fields, driven by this module)
+`hallmarkStatus` moves `NOT_APPLICABLE → PENDING` the moment a piece is first dispatched for hallmarking, and `→ HALLMARKED` the moment a HUID is actually recorded on receipt — a piece that comes back unmarked (rejected, or simply not yet marked) stays `PENDING`, never silently upgraded.
+
+## 7D. Returns, exchange & repair — **implemented** (Phase 8)
+
+`apps/api/src/modules/{returns,exchange,repair}`. The same explicit-action discipline as every workflow module above; every physical movement is a real `InventoryLedger` entry (§2.1), never a status/location edit. Two new `InventoryStatus` values support these: `RETURNED_TO_CUSTOMER` (terminal — a piece handed back at the end of a repair that was never the business's to sell) alongside the existing `RETURNED`/`DAMAGED`/`UNDER_REPAIR`. Three new `MovementType`s: `EXCHANGE_IN` (old jewellery taken in on an exchange — a creation movement, the same shape as `PURCHASE_RECEIPT`), `REPAIR_INTAKE` (a repair piece that wasn't already an `InventoryItem` — created straight into `UNDER_REPAIR`), `REPAIR_RETURN` (hands a repaired piece back to whoever owns it — `UNDER_REPAIR → SOLD` or `UNDER_REPAIR → RETURNED_TO_CUSTOMER`, never back onto sellable `AVAILABLE` stock, which is what distinguishes it from `REPAIR_IN`). `InventoryItem.isCustomerOwned` (new field) marks a piece created by a repair intake that the business never sold and does not own — it can never become `AVAILABLE` and its `cost` is always 0.
+
+### `returns`
+One return process, either channel, against the order it was actually sold on.
+- `returnNo` (`RET-000123`), `channel` (`B2C | B2B`), `status` (`REQUESTED | APPROVED | REJECTED | RECEIVED | INSPECTED | SETTLED | CANCELLED`), `orderId`/`orderNo` (the `Order` for B2C, the `B2BSalesOrder` for B2B), `customer` (`id?`, `name`, `email?`, `phone?` — resolved from the order, never trusted from the request), `reason` (`DEFECTIVE | WRONG_ITEM | NOT_AS_DESCRIBED | SIZE_ISSUE | CHANGED_MIND | OTHER`), `reasonNote?`, `lines[]`, `rejectedReason?`, `receivedAt?`, `inspectedAt?`, `settlement?`, `refundableTotal` (sum of the lines' `unitPrice`, informational until `SETTLED`), `history[]`.
+- A line: `itemId`/`itemCode` (the exact `InventoryItem` sold — never just a SKU), `sku`, `name`, `orderLineRef` (the order's own line id for B2C, the sales order's `lineIndex` as a string for B2B — whichever line this piece was sold on), `huid?`/`grossWeight` (snapshots taken from the item at request time, to check the physical piece against at receipt), `unitPrice` (what the customer paid for this exact piece), `weightDiscrepancyNote?` (set at receipt if the observed weight has moved), `condition?`/`conditionNote?` (set at inspection: `GOOD | DAMAGED | DEFECTIVE`).
+- `settlement`: `method` (`REFUND | STORE_CREDIT | ADJUST_INVOICE`), `amount`, `reference?`, `note?`, `recordedAt`, `recordedByName?` — a financial record; no further ledger entry follows it.
+- Indexes: `{ orderId, createdAt: -1 }`, `{ "lines.itemId" }`.
+
+### `exchanges`
+Old jewellery → assessment → new product → difference, one document per exchange, staff-only.
+- `exchangeNo` (`EXC-000123`), `status` (`DRAFT | ASSESSED | COMPLETED | CANCELLED`), `customer` (`id?`, `name`, `phone?`, `email?`), `oldJewellery` (the assessment, below), `newProduct?` (`productId`/`variantId?`/`sku`/`name`/`quantity`/`unitPrice`/`lineTotal` — the new sale itself is a normal `Order`/`B2BSalesOrder`, referenced here only for the paper trail via `orderId?`/`orderNo?`), `oldItemId?` (the `InventoryItem` created once the old piece is actually taken in — unset before `COMPLETED`), `settlement?`, `notes?`, `history[]`.
+- `oldJewellery`: `description`, `metalId`/`metalName`, `claimedPurity?` (informational only), `grossWeight`/`stoneWeight`/`netWeight` (derived), `assessedPurity`/`assessedFineness`/`fineWeight` (derived, informational — see business-rules.md §18.2 on why the valuation itself uses net weight directly, the same convention as every other rate in this system), `ratePerGram` (what's credited per gram of net weight *at this purity* — ­quoted for the piece's own assessed purity, not converted from a 24K rate), `deduction`, `valuation` (`= netWeight × ratePerGram − deduction`, floored at zero, computed server-side via `packages/pricing-engine`'s `valueOfMetal`, never accepted as input), `notes?`.
+- `settlement`: `difference` (positive = customer owes; negative = business owes; never clamped), `method?`, `reference?`, `note?`, `recordedAt`, `recordedByName?`.
+- Index: `{ status, createdAt: -1 }`.
+
+### `repairorders`
+Customer → repair intake → inspection → estimate → approval → repair → QC → ready → delivery/pickup.
+- `repairNo` (`REP-000123`), `status` (`INTAKE | INSPECTED | ESTIMATED | APPROVED | DECLINED | IN_PROGRESS | QC_PENDING | QC_FAILED | READY | DELIVERED | CANCELLED`), `customer` (`id?`, `name`, `phone`, `email?`), `itemId`/`itemCode`/`itemDescription`, `metalId?`/`purity?`/`huid?` (snapshot from the item, if it already had one), `beforeWeight?`/`afterWeight?` (`grossWeight`/`stoneWeight`/`netWeight`/`at` — the spec's "before weight"/"after weight"), `stoneWork?`, `inspectionNotes?`, `estimate?` (`labourCharge`/`materialsCharge`/`otherCharges`/`total`/`notes?`/`estimatedAt`/`estimatedByName?`), `approval?` (`approved`/`at`/`byName?`/`note?` — the customer's decision, recorded by whoever took the call), `finalCharges?` (defaults to the approved estimate at `recordWork`, may be adjusted there, never after), `qc?` (`result: PASSED|FAILED`/`notes?`/`at`/`byName?`), `dueDate?`, `readyAt?`, `deliveredAt?`, `history[]`.
+- Indexes: `{ status, createdAt: -1 }`, `{ itemId }`.
+
+### Relationship to `Order` / `B2BSalesOrder`
+A `Return`'s `orderId` is never trusted from the request: `order-context.ts` resolves it from the order/sales-order's own `allocations` (§2.3's "an order holds and sells specific pieces"), which is the one place, for either channel, that already says which exact `InventoryItem` was sold against which line. A customer-facing return request therefore names order *lines* (`lineRefs`), never a raw `InventoryItem` id — the server does the line → item resolution, exactly as it recalculates everything else a customer-facing request touches (business-rules.md §11.1).
+
+## 7E. Accounting — **implemented** (Phase 9)
+
+`apps/api/src/modules/accounting`. The first accounting layer, not a full package: a real double-entry general ledger under the ERP's existing commercial documents, posted by one shared abstraction (`posting.service.ts`'s `postJournal`) rather than re-implemented per channel (business-rules.md §20).
+
+### `chartofaccounts`
+- `code` (unique, e.g. `1100`), `name`, `type` (`ASSET | LIABILITY | EQUITY | INCOME | EXPENSE`), `systemRole?` (one of `CASH, BANK, ACCOUNTS_RECEIVABLE, ACCOUNTS_PAYABLE, INVENTORY, SALES, PURCHASES, COST_OF_GOODS_SOLD, GST_PAYABLE, GST_RECEIVABLE, DISCOUNT_GIVEN` — how the posting engine finds an account, never a hardcoded id), `description?`, `isSystem`, `isActive`.
+- Index: `{ systemRole: 1, isActive: 1 }` unique, partial on `systemRole` existing and `isActive: true` — at most one active account may hold a role at any moment, so the posting engine's lookup (`requireSystemAccount`) is never ambiguous.
+- `syncChartOfAccounts()` upserts the default chart (`DEFAULT_CHART_OF_ACCOUNTS`, code-defined) at every boot — `$setOnInsert` for name/type/description (never overwriting a business's own rename), `$set` only for `systemRole` (so the role → account mapping can't drift by hand edit, the same discipline as `role-matrix.ts`'s system roles).
+
+### `accountingentries` — **append-only**
+One balanced journal entry per posting: a header plus its debit/credit lines.
+- `journalNo` (`JE-000123`), `date` (business day, IST), `channel` (`B2C | B2B | ERP`), `referenceType` (`SALES_INVOICE | PAYMENT_RECEIVED | PURCHASE_INVOICE | PAYMENT_MADE | CREDIT_NOTE | DEBIT_NOTE | MANUAL`), `referenceId?`, `referenceLabel?` (the commercial document's own number, for display without a join), `narration`, `lines[]` (`accountId`, `accountCode`/`accountName` — a snapshot, so a later account rename never rewrites history — `direction: DEBIT|CREDIT`, `amount`), `totalDebit`, `totalCredit` (always equal — `postJournal` refuses to write anything where they aren't), `performedBy`/`performedByName`.
+- Indexes: `{ referenceType, referenceId }`, `{ "lines.accountId", date }`, `{ date }`.
+- Enforced immutable at the Mongoose layer by the same `appendOnlyPlugin` as `InventoryLedger`/`Transaction`. A correction is a new entry with every line's direction flipped (`reverseJournal`), never an edit (business-rules.md §20.4).
+
+### `creditnotes`
+Reduces what a customer owes. `creditNoteNo` (`CN-000123`), `customerId`/`customerName`, `invoiceId?`/`invoiceNo?`, `returnId?`/`returnNo?` (a future hook for Returns settlement — not wired in this phase), `reason` (`SALES_RETURN | PRICE_ADJUSTMENT | GOODWILL | OTHER`), `reasonNote?`, `taxableValue`, `gst`, `total`, `status` (`ISSUED | CANCELLED`), `issueDate`, `cancelledReason?`, `createdById`/`createdByName`.
+
+### `debitnotes`
+The purchase-side mirror — reduces what the business owes a supplier. `debitNoteNo` (`DN-000123`), `supplierId`/`supplierName`, `supplierInvoiceId?`/`supplierInvoiceNo?`, `reason` (`PURCHASE_RETURN | PRICE_ADJUSTMENT | SHORT_SUPPLY | OTHER`), `reasonNote?`, `taxableValue`, `gst`, `total`, `status`, `issueDate`, `cancelledReason?`, `createdById`/`createdByName`.
+
+### `Payment` / `PaymentAllocation` — not new collections
+The task named these as entities; this layer deliberately does not duplicate them. B2B's `B2BPayment`/`PaymentAllocation` (§7, Phase 4) and Procurement's `SupplierPayment`/`SupplierPaymentAllocation` (§7A, Phase 5) already implement exactly this — recorded → verified/allocated → derived paid amount, maker–checker on the receivable side — fully tested, per channel. Allocating (or reversing) either now *also* posts a GL entry through the shared `postSalesInvoice`/`postPaymentReceived`/`postPurchaseInvoice`/`postPaymentMade` functions, in the same database transaction as the allocation itself, rather than reimplementing payment tracking a third time.
+
+### Where the ledger is fed from (no new write paths elsewhere)
+- `postSalesInvoice` — called from `b2b/fulfilment.service.ts`'s `invoice()`, inside its existing inventory-ledger transaction.
+- `postPaymentReceived` / its reversal — called from `b2b/payments.service.ts`'s `allocate()`/`reverse()`.
+- `postPurchaseInvoice` / its reversal — called from `procurement/supplier-invoice.service.ts`'s `createSupplierInvoice()`/`cancelSupplierInvoice()`.
+- `postPaymentMade` / its reversal — called from `procurement/supplier-payment.service.ts`'s `allocateSupplierPayment()`/`reverseSupplierPayment()`.
+- Credit/debit notes post from their own services, standalone documents against a customer/supplier (and optionally an invoice), not tied to any of the above.
+
 ## 8. Not yet implemented (still Phase 0 proposals)
 
-Orders (`orders`, `carts`, `purchaseOrders`), Procurement (`supplierPurchaseOrders`, `goodsReceipts`), Manufacturing & job work (`productionOrders`, `jobWorkOrders`), Invoicing (`invoices`, `payments`, `paymentAllocations`), Compliance (`taxRules`, `hallmarkingRecords`), `priceSnapshots`, `creditAccounts` are all still exactly as sketched in the original Phase 0 draft of this document — see [progress.md](./progress.md) for which phase builds each one. None of this phase's new collections change those sketches; `PriceSnapshot` in particular still works exactly as originally described once Phase 2 builds it (immutable, embedded on order/invoice lines, referencing the `PricingRule`s that produced it).
+Orders (`orders`, `carts`, `purchaseOrders`) — **now implemented**, see §7 (B2C/B2B) and §7A (procurement) — Manufacturing & job work — **now implemented**, see §7B — Hallmarking — **now implemented**, see §7C — Returns, exchange & repair — **now implemented**, see §7D — Accounting (chart of accounts, general ledger, credit/debit notes) — **now implemented**, see §7E — `creditAccounts` (a B2C credit account; B2B's own credit is §7) is still exactly as sketched in the original Phase 0 draft of this document — see [progress.md](./progress.md) for which phase builds each one.
 
 ## 9. Relationships at a glance (updated for Product Master)
 
@@ -245,6 +375,22 @@ User ── Role, Branch
 
 PricingRule ── Metal, ProductCategory, CustomerGroup, PriceList
 PriceList (versioned by code) ── CustomerGroup, Customer
+
+Supplier ── PurchaseRequisition ── PurchaseOrder ── GoodsReceipt >── InventoryLedger (PURCHASE_RECEIPT)
+                                         │                 │
+                                         └── SupplierInvoice ── SupplierPayment ── SupplierPaymentAllocation
+
+Product ── ProductionOrder >── InventoryLedger (MANUFACTURING_ISSUE / MANUFACTURING_RECEIPT)
+Supplier ── JobWorkOrder >── InventoryLedger (JOBWORK_ISSUE / JOBWORK_RECEIPT)
+
+Order / B2BSalesOrder ── Return >── InventoryLedger (RETURN: SOLD→RETURNED, RETURNED→AVAILABLE/DAMAGED)
+Customer ── Exchange >── InventoryLedger (EXCHANGE_IN)
+Customer ── RepairOrder ── InventoryItem >── InventoryLedger (REPAIR_OUT/REPAIR_INTAKE, REPAIR_RETURN)
+
+B2BInvoice ── postSalesInvoice ──┐
+SupplierInvoice ── postPurchaseInvoice ──┤
+B2BPayment / SupplierPayment (allocate) ──┼──> AccountingEntry >── ChartOfAccount
+CreditNote / DebitNote ──┘
 ```
 
 ## 10. Notes on immutability & indexing (updated)

@@ -16,6 +16,7 @@ const STATUSES = [
   "HALLMARKING",
   "SCRAP",
   "MELTING",
+  "RETURNED_TO_CUSTOMER",
 ] as const;
 
 export type InventoryItemAttrs = Omit<InventoryItem, "id" | "productId" | "variantId" | "metalId" | "locationId" | "stoneDetails" | "reservation"> & {
@@ -95,6 +96,7 @@ const inventoryItemSchema = new Schema<InventoryItemAttrs>(
       ),
       required: false,
     },
+    isCustomerOwned: { type: Boolean, default: false },
   },
   baseSchemaOptions<InventoryItemAttrs>()
 );

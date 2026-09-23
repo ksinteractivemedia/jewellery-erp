@@ -253,3 +253,119 @@ These are the rules the system must enforce regardless of which channel (ERP/B2C
 13.6. **Methods**: BANK_TRANSFER, NEFT, RTGS, IMPS, CHEQUE, CASH, OTHER. A payment cannot be dated in the future; amounts are positive whole paise.
 
 13.7. **Every sensitive step is audited** with actor and reason: profile and credit changes, credit overrides, quotations, approvals, allocations, invoices, payment recording, verification, rejection, allocation and reversal.
+
+## 14. Procurement
+
+14.1. **Every status change is a named, checked action** — a purchase requisition, a purchase order, a supplier invoice and a supplier payment each move only through their own action table (`procurement-status.ts`), exactly the discipline §12 sets for B2B. A purchase order's `PARTIALLY_RECEIVED`/`RECEIVED` are *derived* from its lines' received-so-far figures, applied through the named `receive` action like a B2B sales order's allocate/invoice.
+
+14.2. **A purchase line's value is computed, never accepted as input**, and is never the sales pricing engine's job: `fineWeight × ratePerGram` for a weight-tracked type (gold, silver, platinum, raw material, stone — priced by the gram, purity priced in via fine weight), or `ratePerUnit × quantity` otherwise (finished jewellery, priced by the piece; a consumable, optionally). A line needs a metal and purity unless it is a `CONSUMABLE` — never a metal piece.
+
+14.3. **Receiving stock always posts a real InventoryLedger entry, in the same transaction as the receipt document and the purchase order's progress.** No stock is ever created outside that transaction (§2.1's rule, unchanged for this channel). A `CONSUMABLE` line is recorded on the receipt but creates no `InventoryItem` — it has no weight, purity or fineness.
+
+14.4. **A goods receipt is checked before anything is written**: receiving beyond what is still outstanding on a line is refused; receiving at a purity that does not match the order is refused; a scale reading more than 2% off a *stated* expected weight for that shipment needs an explanatory note or is refused — a genuine partial receipt with no stated expectation is never flagged, since there is nothing to compare it to.
+
+14.5. **A goods receipt is append-only once posted** — never edited, never reversed. Cancelling a purchase order (before receipt, or the unreceived remainder of a partially-received one) never touches what has already arrived; a supplier return is a distinct, not-yet-built movement.
+
+14.6. **A supplier invoice's paid amount and status are derived from unreversed allocations, never stored** — the same rule as a B2B customer invoice (§12.7, §13.4). A supplier payment needs no maker–checker (unlike a customer's, §13.2): `accounting.create_payment` is itself the control, and the payment is immediately available to allocate once recorded; it can still be reversed, which reverses its allocations and the invoices it paid are owed again.
+
+14.7. **Every sensitive step is audited** with actor and reason: requisition approval/rejection/cancellation, purchase-order approval/cancellation, a posted goods receipt (naming any weight discrepancy), a supplier invoice recorded/cancelled, and a supplier payment recorded/allocated/reversed.
+
+## 15. Manufacturing & job work
+
+15.1. **Every status change is a named, checked action** — a production order (Production Order → Material Issue → Manufacturing → QC → Finished Jewellery → Inventory) and a job work order (issue → return) each move only through their own action table, exactly the discipline §12 and §14 set for B2B and procurement. A job work order's `PARTIALLY_RETURNED`/`RETURNED` are *derived* from whether the caller marks a return `final`, not from weight-matching — a partial return legitimately hasn't accounted for everything yet, and that is not a discrepancy.
+
+15.2. **Material issue moves whole InventoryItems only — a batch is never split.** Issuing posts a real `MANUFACTURING_ISSUE`/`JOBWORK_ISSUE` ledger entry per item (§2.1's rule, unchanged for this channel); each issued item remembers the location it came from, so a later return goes back there — never into the manufacturing unit or job-worker location itself, which are not stock locations.
+
+15.3. **A finished piece is a real InventoryItem, created through the ledger** (`MANUFACTURING_RECEIPT`/`JOBWORK_RECEIPT`, both `creates: true`), tagged with which order made it (`manufacturingInfo.productionOrderId`/`jobWorkOrderId`) so its origin is traceable without rejoining the ledger. Nothing is ever created by editing a quantity directly.
+
+15.4. **QC is a real gate, not a formality.** A production order cannot be completed without passing QC; a failed QC sends it back for rework, not straight to cancellation. Actual weight, actual wastage and labour/making cost are recorded at QC submission, before the decision — the numbers the decision is made on are on the record either way.
+
+15.5. **Material reconciliation is issued − returned − finished − wastage; the remainder is a discrepancy, and the system never silently absorbs it into wastage.** A discrepancy beyond a small, fixed tolerance (scale rounding, not a percentage) is refused unless a note explains it, and clearly flagged once one is given — the same discipline as a goods-receipt weight discrepancy (§14.4). The reconciliation screen shows ISSUED / RETURNED / FINISHED / WASTAGE / DISCREPANCY for every order that has had material issued, discrepant rows sorted first.
+
+15.6. **Cancelling an order that has material out returns whatever hasn't been consumed, in the same action** — nothing is ever left dangling `IN_MANUFACTURING` or `WITH_JOB_WORKER` with no path back to stock.
+
+## 16. Hallmarking
+
+16.1. **Every status change is a named, checked action** — a hallmarking batch (Inventory Item → Send to Hallmarking → In Transit → At Hallmarking Centre → Received) moves only through its own action table (`hallmarking-status.ts`), the same discipline §12/§14/§15 set for every other workflow module. Verified/Failed are **per-piece outcomes** once a batch is `RECEIVED`, not batch statuses — one shipment can come back with some pieces verified and others failed at the same time; a piece's *effective status*, shown everywhere, is its own outcome once it has one, otherwise its batch's shared stage.
+
+16.2. **Every physical movement is a real InventoryLedger entry** (§2.1's rule, unchanged for this channel): dispatching posts `HALLMARKING_OUT` for every piece in one transaction; receiving posts `HALLMARKING_IN`, returning each piece to the location it was sent *from* — never into the assaying centre's own location, which is not a stock location (the same `fromLocationId` pattern as §15.2's manufacturing/job-work returns).
+
+16.3. **A batch's receipt is all-or-nothing**: every piece on the batch must be accounted for in the one receive call (with a HUID, or without one if it came back unmarked or rejected) — a receive naming only some of a batch's pieces is refused, since nothing else would move the omitted pieces out of `HALLMARKING`, and the batch would otherwise read `RECEIVED` while a piece is still physically away.
+
+16.4. **The HUID is unique where applicable**, enforced by the one shared rule everywhere a HUID is ever set on an `InventoryItem` (`inventory-transaction.service.ts`) — never re-implemented per module. It is stored uppercase, so two entries differing only in case collide as the same mark, and it can never be changed once set.
+
+16.5. **A piece can only be verified or failed once, and only once its batch is back**: not before `RECEIVED`, and never a second decision once one has been made. A failed piece keeps a required reason on record.
+
+16.6. **Compliance configuration is never hardcoded.** Assaying/BIS centres are reference data (`AssayingCentre`) — adding, editing or deactivating one is a data change, never a code or regulatory-assumption change; the HUID's shape (`zHuid`) is defined once and shared, not re-implemented per screen or endpoint.
+
+16.7. **Cancellation is PENDING-only** — nothing has physically moved yet at that stage, so there is nothing to reverse. Once dispatched, a batch can only continue forward to `RECEIVED` (and each piece to its own verified/failed outcome), never back out.
+
+16.8. **Every sensitive step is audited** with actor and detail: dispatch (centre, item count), receipt (HUIDs recorded), verify/fail (per piece, with failure reason), and cancellation (reason).
+
+15.7. **Every sensitive step is audited** with actor and reason: material issued, QC passed/failed, an order completed (with the reconciliation figures), a production or job-work order cancelled, and job work issued/returned (naming whether the return was final).
+
+## 17. Returns (B2C and B2B)
+
+17.1. **Every status change is a named, checked action** — a return (REQUESTED → APPROVED/REJECTED → RECEIVED → INSPECTED → SETTLED, or CANCELLED before the piece is physically back) moves only through its own action table (`returns-status.ts`), the same discipline §12/§14/§15/§16 set for every other workflow module.
+
+17.2. **A return always identifies the exact `InventoryItem` an order actually sold, never just a SKU.** Requesting one names the order's own lines (never a raw inventory id from a customer-facing endpoint — `order-context.ts` resolves the order's own `allocations` to find which piece was sold on which line); an item not actually sold on the named order is refused (`these pieces were not sold on order …`). Receiving checks the piece presented against what was recorded at request time: a HUID that doesn't match refuses the receipt outright (this cannot be the same piece); a weight that has moved more than a small tolerance needs an explanatory note to post — the same discipline as a goods receipt's weight-discrepancy check (§14.4). A piece already covered by an open return cannot have a second one raised against it.
+
+17.3. **Every physical movement is a real `InventoryLedger` entry, never a quantity edit** (§2.1's rule, unchanged for this channel): the existing `RETURN` movement type carries the whole lifecycle — receipt posts `SOLD → RETURNED` into wherever the piece was physically handed back; inspection posts `RETURNED → AVAILABLE` (resellable) or `RETURNED → DAMAGED`, per piece, only once a condition has actually been recorded. `Product.quantity` does not exist and is never touched — CLAUDE.md rule 2.
+
+17.4. **Settlement is a financial record, not a stock movement.** `SETTLED` records the method (refund, store credit, or an invoice adjustment), the amount and a reference; nothing about the ledger changes at this step — the piece was already resold or written off at inspection.
+
+17.5. **Cancellation is only possible before the piece is physically back** (`REQUESTED`/`APPROVED`) — once `RECEIVED`, stock is already in flux (the piece has left `SOLD`) and the return must be seen through to inspection, not abandoned mid-flight.
+
+17.6. **A guest (B2C) or a buyer (B2B) may request a return against their own order only.** For a guest this is the same order-access-token proof as every other checkout endpoint (§11.8); for a buyer it is the same customer-id-from-the-database scoping the rest of the portal uses (§12) — a request can never name another customer's order. Approval, receiving, inspection and settlement stay staff-only, from the ERP's Returns screen.
+
+17.7. **Every sensitive step is audited** with actor, the return number and what changed: request, approve, reject (with reason), receive (items, any weight-discrepancy note), inspect (per-piece condition), settle (method and amount), cancel (reason).
+
+## 18. Exchange (old jewellery for new)
+
+18.1. **An exchange is its own document, not a `Return`.** The old piece is not necessarily anything the business ever sold — there is no original order to validate it against — so it is staff-only, done at the counter in one sitting: DRAFT → ASSESSED → COMPLETED, or CANCELLED before the old piece is taken in.
+
+18.2. **The old piece is weighed and valued on our own scale and purity table, never on what the customer or a prior receipt claims.** `claimedPurity` is recorded for reference only; `assessedPurity`, the actual gross/stone/net weight and the rate credited per gram are what the valuation is built from, using the *same* metal-value formula the pricing engine and stock valuation already use (`valueOfMetal`, `packages/pricing-engine`) — CLAUDE.md rule 1: an exchange credit and a sale price can never disagree about what a gram of metal is worth. `netWeight`, `fineWeight` and `valuation` are always computed server-side and are refused as input.
+
+18.3. **Re-assessment is not a correction, it's the job.** Weighing again before the piece is taken in (a customer negotiating, a second look) simply replaces the assessment; nothing is inferred from the difference.
+
+18.4. **Taking the old piece in is a real, ledgered `InventoryItem`, created through the ledger exactly like a purchase receipt** (`EXCHANGE_IN`, `creates: true`) — never a quantity bumped on an existing batch. It lands as `RAW_MATERIAL`, `UNIT` serialization (one traceable piece, not pooled into a fungible batch), `cost` = the assessed valuation, at whichever stock location it was physically taken in at.
+
+18.5. **The settlement difference is computed by the server, and never clamped.** `difference = newProduct.lineTotal − oldJewellery.valuation`: positive means the customer owes it, negative means the business owes the customer — both are real, shown outcomes, not silently zeroed.
+
+18.6. **Every sensitive step is audited**: creation (with the valuation), re-assessment, completion (the old item code, the new SKU, the difference), cancellation (reason).
+
+## 19. Jewellery repair
+
+19.1. **Every status change is a named, checked action** — Customer → repair intake → inspection → estimate → approval → repair → QC → ready → delivery/pickup, moving only through its own action table (`repair-status.ts`). `DECLINED` (the customer doesn't approve the estimate) and `CANCELLED` both hand the piece straight back, unrepaired; `QC_FAILED` loops back to `IN_PROGRESS` for rework, never straight to cancellation (the same QC-is-a-real-gate discipline as §15.4).
+
+19.2. **Intake *is* the ledger movement — not a later step.** Unlike hallmarking's dispatch or manufacturing's material issue, there is no "held for later" stage: a customer hands over a piece and walks out, so creating the repair order and moving the piece into custody happen together, atomically. A repair order only ever applies to a piece the business does not currently have as sellable stock: one already sold to this same customer (`SOLD → UNDER_REPAIR` via the existing `REPAIR_OUT` movement, extended to accept a `SOLD` origin), or one the business has never held before (`isCustomerOwned`, created fresh via `REPAIR_INTAKE`, straight into `UNDER_REPAIR`, `cost: 0`). Internal repair of the business's own unsold stock is the pre-existing `REPAIR_OUT`/`REPAIR_IN` pair (§2 partner movements) and does not go through this customer-facing order at all.
+
+19.3. **Before weight and after weight are both tracked, as physical facts, not derived from anything else.** `beforeWeight` is recorded from the piece's own record (or the customer's stated weight, for a piece never held before) at intake; `afterWeight` is recorded when the work is done (`recordWork`, moving `IN_PROGRESS → QC_PENDING`), *before* the QC decision — the same "the numbers the decision is made on are on the record either way" discipline as §15.4's manufacturing QC.
+
+19.4. **Charges are estimated, approved, then finalised — never silently changed after delivery.** `estimate` (labour + materials + other = total) is recorded before the customer decides; approving/declining is recorded with who and when; `finalCharges`, recorded at the same time as the after-weight, default to the approved estimate but may be adjusted — the last point at which they can ever change.
+
+19.5. **Leaving custody is always a real ledger entry, `REPAIR_RETURN`, and never lands a piece on sellable `AVAILABLE` stock.** Whether the outcome is a declined estimate, a delivery, or a cancellation, the piece goes `UNDER_REPAIR → SOLD` (a piece that was already the customer's simply resumes being theirs) or `UNDER_REPAIR → RETURNED_TO_CUSTOMER` (a piece the business never owned, terminal) depending on `isCustomerOwned` — never back through `REPAIR_IN`, which is reserved for the business's own pre-sale stock.
+
+19.6. **Cancellation reaches every working stage except `READY`** (which should be delivered instead, not cancelled) and the terminal ones — a customer can ask for their piece back mid-repair, and it is handed back exactly as `19.5` describes, at whatever stage the work had reached.
+
+19.7. **Every sensitive step is audited**: intake (item, whether it was customer-owned), inspection, estimate, the customer's decision, work recorded, QC pass/fail, delivery, cancellation.
+
+## 20. Accounting (the first layer, not a full package)
+
+20.1. **The chart of accounts is data, not code — but the posting engine's *roles* are protected the way `AssayingCentre`/`TaxRule` are.** `ChartOfAccount.systemRole` (one of `CASH, BANK, ACCOUNTS_RECEIVABLE, ACCOUNTS_PAYABLE, INVENTORY, SALES, PURCHASES, COST_OF_GOODS_SOLD, GST_PAYABLE, GST_RECEIVABLE, DISCOUNT_GIVEN`) is how every posting function finds "the AR account" — never a hardcoded id. At most one *active* account may hold a given role at a time (a unique partial index enforces this); a business can rename, describe or deactivate any account, but deactivating the last holder of a role is refused, and a custom account created through the API can never claim a role at all — only the code-defined default chart (`chart-of-accounts.service.ts`'s `syncChartOfAccounts`, upserted at every boot, the same policy-as-code pattern as `role-matrix.ts`) does that, once.
+
+20.2. **Every completed sale posts through one function, whichever channel it came from.** `postSalesInvoice` (`accounting/sales-posting.ts`) debits Accounts Receivable for what the customer now owes, debits Discount Given for any concession (its own line — never netted invisibly into revenue), credits Sales at the *gross*, pre-discount amount, and credits GST Payable — and because inventory is tracked perpetually (every `InventoryItem` already carries its own book `cost`), the same posting also debits Cost of Goods Sold and credits Inventory at the sold pieces' *actual* cost, never a periodic estimate. A B2B invoice and a future B2C capture would call the exact same function with different numbers — this is the task's own "transaction abstraction," so accounting logic is never duplicated between sales and purchases (CLAUDE.md rule 1, applied to bookkeeping).
+
+20.3. **A purchase liability is booked when the bill arrives, not when the goods do.** `postPurchaseInvoice` (`accounting/purchase-posting.ts`) runs at `createSupplierInvoice`, not at the earlier goods receipt — goods may arrive before their invoice does, and until the bill exists there is nothing yet owed. It debits Inventory for every ledger-tracked line's value (everything that becomes a real `InventoryItem` — procurement's own `isLedgerTracked` split, not re-decided here), debits Purchases for `CONSUMABLE` lines (which never become stock — data-model.md §7A), debits GST Receivable for the entered tax as recoverable input credit, and credits Accounts Payable for the total.
+
+20.4. **A payment posts only what it actually applied, and a reversal is always a new, opposite entry.** Allocating a verified B2B payment (or a recorded supplier payment) posts Cash/Bank against Accounts Receivable/Payable for the amount *applied in that call* — not the payment's full face value, which may be allocated across several calls and several invoices. `AccountingEntry` is append-only, exactly like `InventoryLedger`/`Transaction` (§2.1a): reversing a payment, or cancelling a credit/debit note or an unpaid supplier invoice, never edits what was posted — `reverseJournal` writes a fresh entry with every line's direction flipped, referencing the same document, so the full history (what happened, and that it was later undone) stays on the record.
+
+20.5. **A credit note always reduces Accounts Receivable; a debit note always reduces Accounts Payable.** A credit note (`SALES_RETURN | PRICE_ADJUSTMENT | GOODWILL | OTHER`) debits Sales and GST Payable at the amount being given back and credits AR — even "store credit" is modelled as a credit balance sitting on the customer's own AR account rather than a separate liability, a deliberate simplification for this first layer. A debit note (`PURCHASE_RETURN | PRICE_ADJUSTMENT | SHORT_SUPPLY | OTHER`) is the mirror: debits AP, credits Inventory and GST Receivable. Neither is a general-purpose journal entry — both trace to a real customer or supplier and post through the same `postJournal` everything else uses.
+
+20.6. **`postJournal` is the one write path, and it refuses to write anything that doesn't balance.** Every accounting function — sales, purchases, notes — ends up calling it with a list of `{role, direction, amount}` lines; it resolves each role to today's account, drops any zero-amount line (so an invoice with no discount simply has no Discount Given line, rather than a zero one cluttering the ledger), sums debits and credits, and refuses outright if they disagree. There is deliberately no endpoint for a free-form manual journal entry — every posting traces back to a real commercial document, which is what keeps "every completed financial transaction creates appropriate accounting entries" true by construction rather than by discipline.
+
+20.7. **Receivables/ageing/outstanding are computed once and read everywhere.** The ERP's Receivables Dashboard (`accounting/receivables-reads.service.ts`) reuses B2B's own `ageInvoices`/`isOverdue`/`daysOverdue`/`invoiceStatus`/`paidByInvoice` (`b2b/credit.ts`, `b2b/b2b-core.ts`) rather than re-implementing ageing math a second time — the only difference from the B2B portal's own per-customer outstanding view is scope (every customer at once, for the accounts team, not one buyer's own page). No accounting figure is computed in a React component; every screen renders exactly what the API returns.
+
+20.8. **A trial balance is a proof, not just a report.** Because `postJournal` never writes an unbalanced entry, summing every posted debit and credit by account (`reports.service.ts`'s `trialBalance`) should always foot to the same total on both sides — the Ledger screen shows this explicitly, so a real bug in the posting engine (not in the business) would show up as a trial balance that doesn't balance.
+
+20.9. **Every sensitive step is audited**: an account created or its active status changed, a credit or debit note issued or cancelled — the same discipline as every workflow module before this one. Postings that ride inside an existing document's own transaction (an invoice, a payment allocation) are covered by that document's own audit entry; the posting itself is always inside the same database transaction as the document, so "the invoice was created but its accounting entry wasn't" can never happen.
