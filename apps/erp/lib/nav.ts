@@ -146,7 +146,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "Repairs", href: "/repairs", icon: Wrench, permission: P.REPAIR_VIEW, ownsHeader: true },
       { label: "Customers", href: "/customers", icon: Users, permission: P.CUSTOMERS_VIEW },
-      { label: "Reports", href: "/reports", icon: BarChart3, permission: P.REPORTS_VIEW },
+      { label: "Reports", href: "/reports", icon: BarChart3, permission: P.REPORTS_VIEW, ownsHeader: true },
       { label: "Settings", href: "/settings", icon: SettingsIcon, permission: P.SETTINGS_MANAGE_USERS },
     ],
   },

@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { PageHeader } from "@jewellery/ui";
+import { Wrench } from "lucide-react";
+import { EmptyState, PageHeader } from "@jewellery/ui";
 import { PERMISSIONS as P } from "@jewellery/types";
 import type { RepairOrder } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -300,7 +301,7 @@ export function RepairView() {
       </div>
       {creating && <NewRepairForm onDone={(ro) => { setCreating(false); setSel(ro.id); q.refetch(); dash.refetch(); }} />}
       <Load q={q}>
-        {(q.data ?? []).length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing here.</p> : (
+        {(q.data ?? []).length === 0 ? <EmptyState icon={<Wrench className="h-8 w-8" />} title="No repairs match" description="Try a different filter, or start a repair intake for a sold piece." /> : (
           <Table testId="repairs-table"><thead><tr><Th>Repair</Th><Th>Customer</Th><Th>Item</Th><Th>Due</Th><Th>Status</Th></tr></thead><tbody>
             {(q.data ?? []).map((r) => (
               <tr key={r.id} className={`cursor-pointer hover:bg-surface-sunken ${sel === r.id ? "bg-surface-sunken" : ""}`} onClick={() => setSel(r.id)} data-testid="repair-row">

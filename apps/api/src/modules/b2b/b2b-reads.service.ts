@@ -167,8 +167,15 @@ export function createB2BReads(deps: { media: MediaService; now?: () => Date; /*
   async function catalogue(customerId: string, q: PortalCatalogueQuery): Promise<B2BCatalogueResult> {
     const ctx = await customerContext(customerId, clock());
     const state = buyerStateFor(ctx);
-    const products = await ProductModel.find({ isActive: true, b2bEnabled: true }).lean();
-    const variants = await ProductVariantModel.find({ productId: { $in: products.map((p) => p._id) }, isActive: true }).lean();
+    // Only what catalogueItem()/priceFor()/this function's own filtering actually read — the catalogue lists
+    // every b2b-enabled SKU on every browse, so skipping unused fields (description, videos, collectionIds…) is
+    // real savings multiplied across the whole product line, not a one-row optimization.
+    const products = await ProductModel.find({ isActive: true, b2bEnabled: true })
+      .select("sku name categoryId metalId purity defaultGrossWeight defaultNetWeight stoneDetails stoneValue b2bPriceOnRequest b2bMinOrderQuantity images tags")
+      .lean();
+    const variants = await ProductVariantModel.find({ productId: { $in: products.map((p) => p._id) }, isActive: true })
+      .select("productId sku defaultGrossWeight defaultNetWeight attributes")
+      .lean();
     const cats = await ProductCategoryModel.find({}).lean();
     const catName = new Map(cats.map((c) => [id(c._id), c]));
     const stock = await stockCounts(products.map((p) => p._id));

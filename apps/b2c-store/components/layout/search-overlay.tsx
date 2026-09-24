@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Search } from "lucide-react";
-import { Dialog, DialogContent, DialogTitle } from "@jewellery/ui";
+import { Dialog, DialogContent, DialogTitle, Skeleton } from "@jewellery/ui";
 import { useSuggestions } from "../../lib/queries";
 import { ProgressiveImage } from "../ui/progressive-image";
 import { PriceTag } from "../product/price";
@@ -33,7 +33,14 @@ export function SearchOverlay({ open, onOpenChange }: { open: boolean; onOpenCha
           {debounced.trim().length < 2 ? (
             <p className="py-8 text-center text-body text-muted">Type at least two letters to see pieces.</p>
           ) : results.isPending ? (
-            <p className="py-8 text-center text-body text-muted">Searching…</p>
+            <ul className="flex flex-col divide-y divide-border-subtle" aria-label="Searching…">
+              {[0, 1, 2].map((i) => (
+                <li key={i} className="flex items-center gap-4 py-3">
+                  <Skeleton className="h-16 w-16 shrink-0" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-2"><Skeleton className="h-4 w-2/3" /><Skeleton className="h-3 w-1/3" /></div>
+                </li>
+              ))}
+            </ul>
           ) : items.length === 0 ? (
             <p className="py-8 text-center text-body text-muted" data-testid="search-empty">Nothing matches “{debounced}”. Try a metal, a category or a collection name.</p>
           ) : (

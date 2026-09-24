@@ -24,7 +24,7 @@ import {
   formatWeight,
 } from "@jewellery/ui";
 import { catalogApi } from "../../lib/api/catalog";
-import { useCatalogMutation, useProduct } from "../../lib/api/queries";
+import { errorMessage, useCatalogMutation, useProduct } from "../../lib/api/queries";
 import { ApiError } from "../../lib/auth/api-client";
 import { useAuth } from "../../lib/auth/auth-context";
 import { ChannelBadges, ProductStatusBadge } from "./product-badges";
@@ -87,7 +87,7 @@ export function ProductDetailView({ id }: { id: string }) {
         {missing ? (
           <EmptyState title="This product doesn't exist" description="It may have been deleted." action={<Button asChild variant="secondary"><Link href="/inventory/products">Back to products</Link></Button>} />
         ) : (
-          <Alert variant="danger">{error instanceof Error ? error.message : "Something went wrong."}</Alert>
+          <Alert variant="danger">{errorMessage(error)}</Alert>
         )}
       </>
     );

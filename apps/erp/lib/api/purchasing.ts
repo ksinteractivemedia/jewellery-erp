@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { GoodsReceipt, PurchaseDashboard, PurchaseOrder, PurchaseRequisition, Supplier, SupplierInvoice, SupplierOutstanding, SupplierPayment } from "@jewellery/types";
 import { apiFetch } from "../auth/api-client";
 import { useApiMutation } from "./queries";
@@ -60,10 +60,10 @@ export const purchasingApi = {
 
 const ALL = [["purchasing"]] as const;
 export const usePurchaseDashboard = () => useQuery({ queryKey: ["purchasing", "dashboard"], queryFn: purchasingApi.dashboard });
-export const useSuppliers = () => useQuery({ queryKey: ["purchasing", "suppliers"], queryFn: purchasingApi.suppliers });
+export const useSuppliers = () => useQuery({ queryKey: ["purchasing", "suppliers"], queryFn: purchasingApi.suppliers, staleTime: 5 * 60_000 });
 export const useSupplierOutstanding = (id: string) => useQuery({ queryKey: ["purchasing", "supplier-outstanding", id], queryFn: () => purchasingApi.supplierOutstanding(id), enabled: !!id });
-export const useRequisitions = (status?: string) => useQuery({ queryKey: ["purchasing", "requisitions", status], queryFn: () => purchasingApi.requisitions(status) });
-export const usePurchaseOrders = (status?: string) => useQuery({ queryKey: ["purchasing", "pos", status], queryFn: () => purchasingApi.purchaseOrders(status) });
+export const useRequisitions = (status?: string) => useQuery({ queryKey: ["purchasing", "requisitions", status], queryFn: () => purchasingApi.requisitions(status), placeholderData: keepPreviousData });
+export const usePurchaseOrders = (status?: string) => useQuery({ queryKey: ["purchasing", "pos", status], queryFn: () => purchasingApi.purchaseOrders(status), placeholderData: keepPreviousData });
 export const useGoodsReceipts = () => useQuery({ queryKey: ["purchasing", "grns"], queryFn: purchasingApi.goodsReceipts });
 export const useSupplierInvoices = () => useQuery({ queryKey: ["purchasing", "invoices"], queryFn: () => purchasingApi.supplierInvoices() });
 export const useSupplierPayments = () => useQuery({ queryKey: ["purchasing", "payments"], queryFn: () => purchasingApi.supplierPayments() });

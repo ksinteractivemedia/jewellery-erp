@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { ShieldCheck } from "lucide-react";
+import { EmptyState } from "@jewellery/ui";
 import type { HallmarkingBatch, HallmarkingLine } from "@jewellery/types";
 import { PERMISSIONS as P } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -217,7 +219,7 @@ export function HallmarkingBatchesView() {
       </div>
       {creating && <NewBatchForm onDone={() => { setCreating(false); q.refetch(); }} />}
       <Load q={q}>
-        {rows.length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing here.</p> : (
+        {rows.length === 0 ? <EmptyState icon={<ShieldCheck className="h-8 w-8" />} title="No batches match" description="Try a different filter, or send a piece to hallmarking." /> : (
           <Table testId="batches-table"><thead><tr><Th>Batch</Th><Th>Centre</Th><Th right>Pieces</Th><Th right>Gross wt</Th><Th>Sent</Th><Th>Status</Th></tr></thead><tbody>
             {rows.map((b) => (
               <tr key={b.id} className={`cursor-pointer hover:bg-surface-sunken ${sel === b.id ? "bg-surface-sunken" : ""}`} onClick={() => setSel(b.id)} data-testid="batch-row">

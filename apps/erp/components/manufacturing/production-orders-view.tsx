@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ClipboardList } from "lucide-react";
+import { EmptyState } from "@jewellery/ui";
 import type { ProductionOrder } from "@jewellery/types";
 import { PERMISSIONS as P } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -183,7 +185,7 @@ export function ProductionOrdersView() {
       </div>
       {creating && <NewProductionOrderForm onDone={() => { setCreating(false); q.refetch(); }} />}
       <Load q={q}>
-        {items.length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing here.</p> : (
+        {items.length === 0 ? <EmptyState icon={<ClipboardList className="h-8 w-8" />} title="No production orders match" description="Try a different filter, or start a new production order." /> : (
           <Table testId="mo-table"><thead><tr><Th>MO</Th><Th>Design</Th><Th right>Qty</Th><Th right>Issued</Th><Th>Status</Th></tr></thead><tbody>
             {items.map((p) => <tr key={p.id} className={`cursor-pointer hover:bg-surface-sunken ${sel === p.id ? "bg-surface-sunken" : ""}`} onClick={() => setSel(p.id)} data-testid="mo-row"><Td className="font-medium">{p.productionOrderNo}</Td><Td>{p.designName}</Td><Td right>{p.quantity}</Td><Td right>{grams(p.issuedGrossWeight)}</Td><Td><Status s={p.status} /></Td></tr>)}
           </tbody></Table>

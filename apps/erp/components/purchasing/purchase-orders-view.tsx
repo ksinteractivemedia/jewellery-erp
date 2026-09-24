@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { ClipboardList } from "lucide-react";
+import { EmptyState } from "@jewellery/ui";
 import type { PurchaseLine, PurchaseOrder } from "@jewellery/types";
 import { PERMISSIONS as P } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -184,7 +186,7 @@ export function PurchaseOrdersView() {
       </div>
       {creating && <NewPurchaseOrderForm onDone={() => { setCreating(false); q.refetch(); }} />}
       <Load q={q}>
-        {items.length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing here.</p> : (
+        {items.length === 0 ? <EmptyState icon={<ClipboardList className="h-8 w-8" />} title="No purchase orders match" description="Try a different filter, or create a new purchase order." /> : (
           <Table testId="po-table"><thead><tr><Th>PO</Th><Th>Supplier</Th><Th right>Total</Th><Th>Status</Th></tr></thead><tbody>
             {items.map((p) => <tr key={p.id} className={`cursor-pointer hover:bg-surface-sunken ${sel === p.id ? "bg-surface-sunken" : ""}`} onClick={() => setSel(p.id)} data-testid="po-row"><Td className="font-medium">{p.poNo}</Td><Td>{p.supplier.name}</Td><Td right>{money(p.totals.total)}</Td><Td><Status s={p.status} /></Td></tr>)}
           </tbody></Table>

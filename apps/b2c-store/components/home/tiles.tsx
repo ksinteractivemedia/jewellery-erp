@@ -30,7 +30,7 @@ export function CategoryNav({ categories }: { categories: StoreCategoryNode[] })
       {categories.map((c) => (
         <li key={c.slug} className="w-36 shrink-0 snap-start sm:w-auto">
           <Link href={`/category/${c.slug}`} className="group flex flex-col gap-3 focus-visible:outline-none">
-            <ProgressiveImage src={c.image?.url} alt={c.image?.alt ?? c.name} ratio="aspect-square" className="rounded-full ring-1 ring-border-subtle transition-shadow group-hover:ring-foreground group-focus-visible:ring-2 group-focus-visible:ring-ring" imgClassName="transition-transform duration-700 group-hover:scale-105" />
+            <ProgressiveImage src={c.image?.url} alt={c.image?.alt ?? c.name} ratio="aspect-square" className="ring-1 ring-border-subtle transition-shadow group-hover:ring-foreground group-focus-visible:ring-2 group-focus-visible:ring-ring" imgClassName="transition-transform duration-700 group-hover:scale-105" />
             <span className="text-center text-[0.75rem] font-medium uppercase tracking-[0.14em]">{c.name}</span>
           </Link>
         </li>

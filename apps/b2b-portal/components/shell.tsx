@@ -85,9 +85,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <button className="btn btn-ghost -ml-2 h-9 w-9 p-0 lg:hidden" aria-label="Open menu" onClick={() => setOpen(true)} data-testid="open-menu"><Menu className="h-5 w-5" /></button>
           <p className="min-w-0 flex-1 truncate text-[0.8125rem] font-medium">{account.data?.customer.name ?? "…"}{account.data?.customer.gstin && <span className="ml-2 hidden text-muted sm:inline">GSTIN {account.data.customer.gstin}</span>}</p>
           {pos && (
-            <Link href="/outstanding" className={cn("hidden items-center gap-2 rounded-md border px-3 py-1.5 text-[0.75rem] sm:flex", pos.available < 0 || pos.onHold ? "border-danger bg-danger-subtle" : "border-border-subtle bg-surface")} data-testid="credit-chip">
-              <span className="text-muted">Available credit</span><span className={cn("num font-semibold", pos.available < 0 && "text-danger")}>{pos.available < 0 ? `−${money0(-pos.available)}` : money0(pos.available)}</span>
-            </Link>
+            <>
+              {/* Below 640px the full chip has no room next to the menu/name/cart row — a compact, amount-only version keeps credit always visible per design-system.md §7B rather than hiding it outright. */}
+              <Link href="/outstanding" className={cn("flex shrink-0 items-center rounded-md border px-2 py-1 text-[0.75rem] sm:hidden", pos.available < 0 || pos.onHold ? "border-danger bg-danger-subtle" : "border-border-subtle bg-surface")} aria-label={`Available credit: ${pos.available < 0 ? `minus ${money0(-pos.available)}` : money0(pos.available)}`} data-testid="credit-chip-compact">
+                <span className={cn("num font-semibold", pos.available < 0 && "text-danger")}>{pos.available < 0 ? `−${money0(-pos.available)}` : money0(pos.available)}</span>
+              </Link>
+              <Link href="/outstanding" className={cn("hidden items-center gap-2 rounded-md border px-3 py-1.5 text-[0.75rem] sm:flex", pos.available < 0 || pos.onHold ? "border-danger bg-danger-subtle" : "border-border-subtle bg-surface")} data-testid="credit-chip">
+                <span className="text-muted">Available credit</span><span className={cn("num font-semibold", pos.available < 0 && "text-danger")}>{pos.available < 0 ? `−${money0(-pos.available)}` : money0(pos.available)}</span>
+              </Link>
+            </>
           )}
           <Link href="/cart" className="btn btn-outline relative h-9 gap-1.5 px-3" aria-label={`Cart, ${cartPieces(cart)} pieces`} data-testid="cart-link"><ShoppingCart className="h-4 w-4" aria-hidden="true" /><span className="num text-[0.75rem]">{cartPieces(cart)}</span></Link>
         </header>

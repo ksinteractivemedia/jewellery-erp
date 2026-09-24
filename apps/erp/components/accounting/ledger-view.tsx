@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { PageHeader } from "@jewellery/ui";
+import { BookOpen } from "lucide-react";
+import { EmptyState, PageHeader } from "@jewellery/ui";
 import { useChartOfAccounts, useJournal, useTrialBalance } from "../../lib/api/accounting";
 import { Load, Table, Td, Th, day, rupees } from "./shared";
 
@@ -57,7 +58,7 @@ export function LedgerView() {
           </select>
         </div>
         <Load q={journal}>
-          {(journal.data ?? []).length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">No entries match.</p> : (
+          {(journal.data ?? []).length === 0 ? <EmptyState icon={<BookOpen className="h-8 w-8" />} title="No entries match" description="Try a different account or reference type." /> : (
             <div className="flex flex-col gap-3">
               {(journal.data ?? []).map((j) => (
                 <div key={j.id} className="rounded-lg border border-border-subtle bg-surface p-3" data-testid="journal-entry">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { RepairOrder } from "@jewellery/types";
 import { apiFetch } from "../auth/api-client";
 import { useApiMutation } from "./queries";
@@ -30,6 +30,6 @@ export const repairApi = {
 
 const ALL = [["repair"]] as const;
 export const useRepairDashboard = () => useQuery({ queryKey: ["repair", "dashboard"], queryFn: repairApi.dashboard });
-export const useRepairOrders = (o: { status?: string } = {}) => useQuery({ queryKey: ["repair", "list", o], queryFn: () => repairApi.list(o) });
+export const useRepairOrders = (o: { status?: string } = {}) => useQuery({ queryKey: ["repair", "list", o], queryFn: () => repairApi.list(o), placeholderData: keepPreviousData });
 export const useRepairOrder = (id: string) => useQuery({ queryKey: ["repair", "detail", id], queryFn: () => repairApi.get(id), enabled: !!id });
 export const useRepairAction = <V, R>(fn: (v: V) => Promise<R>, success: string, onSuccess?: (r: R) => void) => useApiMutation(fn, ALL as unknown as readonly (readonly string[])[], { success, ...(onSuccess ? { onSuccess } : {}) });

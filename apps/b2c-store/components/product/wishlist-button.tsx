@@ -18,7 +18,7 @@ export function WishlistButton({ slug, name, className, withLabel }: { slug: str
         wishlist.toggle(slug);
         toast({ title: saved ? "Removed from wishlist" : "Saved to wishlist", description: name });
       }}
-      className={cn(withLabel ? "inline-flex h-12 items-center gap-2 border border-border px-5 text-[0.8125rem] font-medium uppercase tracking-[0.12em] hover:border-foreground" : "flex h-9 w-9 items-center justify-center rounded-full bg-surface/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-surface", "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", className)}
+      className={cn(withLabel ? "inline-flex h-12 items-center gap-2 border border-border px-5 text-[0.8125rem] font-medium uppercase tracking-[0.12em] hover:border-foreground" : "flex h-11 w-11 items-center justify-center rounded-full bg-surface/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-surface", "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", className)}
       data-testid="wishlist-toggle"
     >
       <Heart className={cn("h-[18px] w-[18px] transition-colors", saved && "fill-primary text-primary")} aria-hidden="true" />

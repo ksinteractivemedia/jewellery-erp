@@ -97,7 +97,7 @@ export function DashboardView() {
     return (
       <>
         {header}
-        <div className="flex flex-col gap-4" aria-busy="true" data-testid="dashboard-loading"><Skeleton className="h-12" /><div className="grid grid-cols-2 gap-3 lg:grid-cols-6">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-24" />)}</div><Skeleton className="h-72" /></div>
+        <div className="flex flex-col gap-4" aria-busy="true" data-testid="dashboard-loading"><Skeleton className="h-12" /><div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-24" />)}</div><Skeleton className="h-72" /></div>
       </>
     );
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { AssayingCentre, HallmarkingBatch, HallmarkingDashboard } from "@jewellery/types";
 import { apiFetch } from "../auth/api-client";
 import { useApiMutation } from "./queries";
@@ -35,8 +35,8 @@ export const hallmarkingApi = {
 const ALL = [["hallmarking"]] as const;
 export const useHallmarkingDashboard = () => useQuery({ queryKey: ["hallmarking", "dashboard"], queryFn: hallmarkingApi.dashboard });
 export const useItemHallmarkingHistory = (itemId: string) => useQuery({ queryKey: ["hallmarking", "item-history", itemId], queryFn: () => hallmarkingApi.itemHistory(itemId), enabled: !!itemId });
-export const useAssayingCentres = () => useQuery({ queryKey: ["hallmarking", "centres"], queryFn: hallmarkingApi.centres });
-export const useHallmarkingBatches = (status?: string) => useQuery({ queryKey: ["hallmarking", "batches", status], queryFn: () => hallmarkingApi.batches(status) });
+export const useAssayingCentres = () => useQuery({ queryKey: ["hallmarking", "centres"], queryFn: hallmarkingApi.centres, staleTime: 5 * 60_000 });
+export const useHallmarkingBatches = (status?: string) => useQuery({ queryKey: ["hallmarking", "batches", status], queryFn: () => hallmarkingApi.batches(status), placeholderData: keepPreviousData });
 export const useHallmarkingBatch = (id: string) => useQuery({ queryKey: ["hallmarking", "batch", id], queryFn: () => hallmarkingApi.batch(id), enabled: !!id });
 
 /** Any hallmarking action refreshes every hallmarking list at once — dispatching a batch changes its own detail, the tab it's on and the dashboard counts together. */

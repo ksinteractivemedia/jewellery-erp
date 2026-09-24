@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { BadgeCheck } from "lucide-react";
+import { EmptyState } from "@jewellery/ui";
 import type { ProductionOrder } from "@jewellery/types";
 import { PERMISSIONS as P } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -49,7 +51,7 @@ export function QualityControlView() {
     <div className="flex flex-col gap-4">
       <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} data-testid="qc-show-all" />Show already-decided orders too</label>
       <Load q={q}>
-        {items.length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing waiting on QC.</p> : (
+        {items.length === 0 ? <EmptyState icon={<BadgeCheck className="h-8 w-8" />} title="Nothing waiting on QC" description="A production order appears here once it's submitted for quality control." /> : (
           <Table testId="qc-table"><thead><tr><Th>MO</Th><Th>Design</Th><Th right>Actual weight</Th><Th right>Wastage</Th><Th>Status</Th><Th>Decision</Th></tr></thead><tbody>
             {items.map((o) => <QcRow key={o.id + o.status} o={o} approve={approve} onDone={() => q.refetch()} />)}
           </tbody></Table>

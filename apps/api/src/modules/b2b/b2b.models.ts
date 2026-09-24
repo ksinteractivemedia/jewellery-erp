@@ -113,6 +113,8 @@ const poSchema = new Schema<PurchaseOrderAttrs>(
   baseSchemaOptions<PurchaseOrderAttrs>()
 );
 poSchema.index({ customerId: 1, createdAt: -1 });
+/** The PO pipeline report groups every purchase order by its current status — the reporting module's own query pattern. */
+poSchema.index({ status: 1, createdAt: -1 });
 export const PurchaseOrderModel: Model<PurchaseOrderAttrs> = model<PurchaseOrderAttrs>("B2BPurchaseOrder", poSchema);
 
 // ---- quotation -------------------------------------------------------------------------------------
@@ -205,6 +207,8 @@ const salesOrderSchema = new Schema<SalesOrderAttrs>(
   baseSchemaOptions<SalesOrderAttrs>()
 );
 freezePaths(salesOrderSchema, ["soNo", "purchaseOrderId", "poNo", "quotationId", "customerId", "lines", "totals", "shippingAddress", "billingAddress"], "Sales order");
+/** creditFor()/creditPositionsFor()'s own query shape — a customer's (or every customer's) live orders. */
+salesOrderSchema.index({ customerId: 1, status: 1 });
 export const SalesOrderModel: Model<SalesOrderAttrs> = model<SalesOrderAttrs>("B2BSalesOrder", salesOrderSchema);
 
 // ---- invoice ---------------------------------------------------------------------------------------
@@ -255,6 +259,10 @@ const invoiceSchema = new Schema<InvoiceAttrs>(
   baseSchemaOptions<InvoiceAttrs>()
 );
 invoiceSchema.index({ customerId: 1, dueDate: 1 });
+/** creditFor()/creditPositionsFor()'s own query shape — a customer's (or every customer's) open invoices. */
+invoiceSchema.index({ customerId: 1, status: 1 });
+/** Sales/B2B reports scan issued invoices within a date range across every customer — the reporting module's own query pattern. */
+invoiceSchema.index({ status: 1, issueDate: 1 });
 freezePaths(invoiceSchema, ["invoiceNo", "salesOrderId", "soNo", "customerId", "customerName", "gstin", "issueDate", "dueDate", "lines", "totals", "taxes", "shippingAddress", "billingAddress", "sequence"], "Invoice");
 export const InvoiceModel: Model<InvoiceAttrs> = model<InvoiceAttrs>("B2BInvoice", invoiceSchema);
 

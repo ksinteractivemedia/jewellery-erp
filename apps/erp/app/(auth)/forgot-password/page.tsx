@@ -33,7 +33,7 @@ export default function ForgotPasswordPage() {
       <div className="flex flex-col gap-4">
         <h1 className="font-display text-h3 text-foreground">Check your email</h1>
         <Alert variant="success">If that email is registered, we&apos;ve sent a link to reset your password. It expires in 30 minutes.</Alert>
-        <Link href="/login" className="text-center text-body-sm text-primary hover:underline">
+        <Link href="/login" className="text-center text-body-sm text-primary-active hover:underline">
           Back to sign in
         </Link>
       </div>
@@ -52,7 +52,7 @@ export default function ForgotPasswordPage() {
       <Button type="submit" loading={submitting} className="w-full">
         Send reset link
       </Button>
-      <Link href="/login" className="text-center text-body-sm text-primary hover:underline">
+      <Link href="/login" className="text-center text-body-sm text-primary-active hover:underline">
         Back to sign in
       </Link>
     </form>

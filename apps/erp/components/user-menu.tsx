@@ -32,7 +32,7 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Account menu">
+        <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="Account menu">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-subtle text-body-sm font-medium text-primary-active">
             {initials(user.name)}
           </span>

@@ -55,19 +55,20 @@ function Catalogue() {
   const page = Number(sp.get("page") ?? 1);
   const pages = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
   const go = (p: number) => { const n = new URLSearchParams(sp.toString()); n.set("page", String(p)); push(n); };
-  const sel = "field w-auto min-w-[9rem]";
+  const sel = "field w-full sm:w-auto sm:min-w-[9rem]";
 
   return (
     <>
       <PageHead title="Catalogue" sub={d ? `${d.total} items offered to you · prices are yours, before GST` : "Prices are yours, before GST"} />
-      <div className="mb-4 flex flex-wrap items-center gap-2" role="search" data-testid="filters">
-        <div className="relative min-w-[14rem] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted" aria-hidden="true" /><input className="field pl-8" placeholder="Search SKU or name" aria-label="Search" value={text} onChange={(e) => setText(e.target.value)} data-testid="search" /></div>
+      {/* A 2-up grid below sm keeps five filter controls from wrapping into a tall single-column stack on a phone; at sm+ it reverts to a wrapping row. */}
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center" role="search" data-testid="filters">
+        <div className="relative col-span-2 sm:min-w-[14rem] sm:flex-1 sm:basis-auto"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted" aria-hidden="true" /><input className="field w-full pl-8" placeholder="Search SKU or name" aria-label="Search" value={text} onChange={(e) => setText(e.target.value)} data-testid="search" /></div>
         <select className={sel} aria-label="Category" value={sp.get("category") ?? ""} onChange={(e) => set("category", e.target.value)} data-testid="f-category"><option value="">All categories</option>{d?.facets.categories.map((c) => <option key={c.slug} value={c.slug}>{c.name} ({c.count})</option>)}</select>
         <select className={sel} aria-label="Metal" value={sp.get("metal") ?? ""} onChange={(e) => set("metal", e.target.value)} data-testid="f-metal"><option value="">All metals</option>{d?.facets.metals.map((m) => <option key={m.code} value={m.code}>{m.name} ({m.count})</option>)}</select>
         <select className={sel} aria-label="Purity" value={sp.get("purity") ?? ""} onChange={(e) => set("purity", e.target.value)} data-testid="f-purity"><option value="">All purities</option>{d?.facets.purities.map((m) => <option key={m.code} value={m.code}>{m.code} ({m.count})</option>)}</select>
         <select className={sel} aria-label="Availability" value={sp.get("availability") ?? ""} onChange={(e) => set("availability", e.target.value)} data-testid="f-availability"><option value="">Any availability</option><option value="in">In stock</option><option value="out">Out of stock</option></select>
         <select className={sel} aria-label="Sort" value={sp.get("sort") ?? "sku"} onChange={(e) => set("sort", e.target.value)} data-testid="f-sort">{SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-        {[...sp.keys()].some((k) => k !== "page") && <button className="btn btn-ghost btn-sm" onClick={() => { setText(""); router.replace(path); }}>Clear</button>}
+        {[...sp.keys()].some((k) => k !== "page") && <button className="btn btn-ghost btn-sm col-span-2 sm:col-auto" onClick={() => { setText(""); router.replace(path); }}>Clear</button>}
       </div>
 
       {q.isError ? <Failure error={q.error} retry={() => q.refetch()} /> : !d ? <Loading rows={8} /> : d.items.length === 0 ? <Empty title="Nothing matches" hint="Try removing a filter." /> : (

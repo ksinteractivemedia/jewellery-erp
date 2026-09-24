@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { Alert, Badge, Skeleton, cn } from "@jewellery/ui";
-import { errorMessage } from "../../lib/api/queries";
+import { Badge } from "@jewellery/ui";
 import { useInventoryList } from "../../lib/api/inventory-queries";
+import { Field, Table, Td, Th, inputCls } from "../shared/kit";
+
+export { Field, Load, Table, Td, Th, btn, inputCls } from "../shared/kit";
 
 export const day = (v: string) => new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
 export const rupees = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -14,20 +16,6 @@ const TONES: Record<string, Variant> = {
   REQUESTED: "neutral", APPROVED: "info", REJECTED: "danger", RECEIVED: "warning", INSPECTED: "info", SETTLED: "success", CANCELLED: "neutral",
 };
 export const Status = ({ s }: { s: string }) => <Badge variant={TONES[s] ?? "neutral"} data-testid="status">{s.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase())}</Badge>;
-
-export const Th = ({ children, right }: { children?: React.ReactNode; right?: boolean }) => <th className={cn("whitespace-nowrap border-b border-border bg-surface-sunken px-3 py-2 text-caption font-semibold uppercase tracking-wide text-muted", right ? "text-right" : "text-left")}>{children}</th>;
-export const Td = ({ children, right, className }: { children?: React.ReactNode; right?: boolean; className?: string }) => <td className={cn("border-b border-border-subtle px-3 py-2.5 align-middle text-body-sm", right && "text-right tabular", className)}>{children}</td>;
-export const Table = ({ children, testId }: { children: React.ReactNode; testId?: string }) => <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface"><table className="w-full border-collapse" data-testid={testId}>{children}</table></div>;
-
-export function Load({ q, children, rows = 5 }: { q: { isLoading: boolean; isError: boolean; error: unknown; refetch: () => unknown }; children: React.ReactNode; rows?: number }) {
-  if (q.isLoading) return <div className="flex flex-col gap-2">{Array.from({ length: rows }, (_, i) => <Skeleton key={i} className="h-10" />)}</div>;
-  if (q.isError) return <Alert variant="danger" title="Couldn't load this">{errorMessage(q.error)} <button className="underline" onClick={() => q.refetch()}>Retry</button></Alert>;
-  return <>{children}</>;
-}
-
-export const Field = ({ label, children }: { label: string; children: React.ReactNode }) => <label className="flex flex-col gap-1 text-caption font-medium text-muted">{label}{children}</label>;
-export const inputCls = "h-9 rounded-md border border-border bg-surface px-3 text-body-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-export const btn = (kind: "primary" | "outline" | "danger" = "outline") => cn("inline-flex h-9 items-center justify-center gap-2 rounded-md px-3.5 text-body-sm font-medium transition-colors disabled:opacity-50", kind === "primary" && "bg-primary text-[var(--palette-black)] hover:bg-primary-hover", kind === "outline" && "border border-border bg-surface hover:border-foreground", kind === "danger" && "border border-danger text-danger hover:bg-danger-subtle");
 
 /**
  * Picks whole SOLD pieces — a return/repair always ties to the exact InventoryItem an order sold,

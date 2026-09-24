@@ -36,6 +36,7 @@ export * from "./procurement";
 export * from "./manufacturing";
 export * from "./hallmarking";
 export * from "./accounting";
+export * from "./reports";
 export * from "./returns";
 export * from "./exchange";
 export * from "./repair";

@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { PageHeader } from "@jewellery/ui";
+import { Undo2 } from "lucide-react";
+import { EmptyState, PageHeader } from "@jewellery/ui";
 import { PERMISSIONS as P } from "@jewellery/types";
 import type { Return, ReturnLine } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -309,7 +310,7 @@ export function ReturnsView() {
       </div>
       {creating && <NewReturnForm onDone={() => { setCreating(false); q.refetch(); dash.refetch(); }} />}
       <Load q={q}>
-        {(q.data ?? []).length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing here.</p> : (
+        {(q.data ?? []).length === 0 ? <EmptyState icon={<Undo2 className="h-8 w-8" />} title="No returns match" description="Try a different filter, or request a return against a sold piece." /> : (
           <Table testId="returns-table"><thead><tr><Th>Return</Th><Th>Channel</Th><Th>Order</Th><Th>Customer</Th><Th right>Pieces</Th><Th right>Refundable</Th><Th>Status</Th></tr></thead><tbody>
             {(q.data ?? []).map((r) => (
               <tr key={r.id} className={`cursor-pointer hover:bg-surface-sunken ${sel === r.id ? "bg-surface-sunken" : ""}`} onClick={() => setSel(r.id)} data-testid="return-row">

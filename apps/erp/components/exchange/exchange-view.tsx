@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { PageHeader } from "@jewellery/ui";
+import { Repeat } from "lucide-react";
+import { EmptyState, PageHeader } from "@jewellery/ui";
 import { PERMISSIONS as P } from "@jewellery/types";
 import type { Exchange } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -268,7 +269,7 @@ export function ExchangeView() {
       </div>
       {creating && <NewExchangeForm onDone={(ex) => { setCreating(false); setSel(ex.id); q.refetch(); dash.refetch(); }} />}
       <Load q={q}>
-        {(q.data ?? []).length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing here.</p> : (
+        {(q.data ?? []).length === 0 ? <EmptyState icon={<Repeat className="h-8 w-8" />} title="No exchanges yet" description="Start one from a customer's old jewellery to begin inspection and valuation." /> : (
           <Table testId="exchanges-table"><thead><tr><Th>Exchange</Th><Th>Customer</Th><Th>Old piece</Th><Th right>Valuation</Th><Th>Status</Th></tr></thead><tbody>
             {(q.data ?? []).map((e) => (
               <tr key={e.id} className={`cursor-pointer hover:bg-surface-sunken ${sel === e.id ? "bg-surface-sunken" : ""}`} onClick={() => setSel(e.id)} data-testid="exchange-row">

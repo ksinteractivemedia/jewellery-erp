@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { Gem } from "lucide-react";
 import {
-  CommandPalette,
   ERPLayout,
   MobileNavigation,
   PageHeader,
@@ -14,6 +14,10 @@ import {
   type SidebarNavItem,
   Topbar,
 } from "@jewellery/ui";
+
+// cmdk + its Radix Dialog are real weight most visits never touch — split them out of every page's
+// main bundle and load only the first time someone actually opens the palette (⌘K or the search icon).
+const CommandPalette = dynamic(() => import("@jewellery/ui").then((m) => m.CommandPalette), { ssr: false });
 import { useAuth } from "../lib/auth/auth-context";
 import { findNavItem, findOwningNavItem, getBreadcrumb, visibleNav, type NavLeaf } from "../lib/nav";
 import { RequirePermission } from "./auth/require-permission";
@@ -47,18 +51,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { can } = useAuth();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  // Once true, stays true — the palette (and its chunk) loads on first open and simply hides/shows after that,
+  // rather than being torn down and its module re-fetched every close.
+  const [paletteRequested, setPaletteRequested] = React.useState(false);
+  const openPalette = React.useCallback((next: boolean | ((o: boolean) => boolean)) => {
+    setPaletteRequested(true);
+    setPaletteOpen(next);
+  }, []);
   const nav = React.useMemo(() => visibleNav(can), [can]);
 
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setPaletteOpen((o) => !o);
+        openPalette((o) => !o);
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [openPalette]);
 
   const groups = withActiveState(nav, pathname);
   // Nested routes (detail/edit/new) inherit their section's permission but draw their own header.
@@ -87,7 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       topbar={
         <Topbar
           navigation={<MobileNavigation groups={groups} brand={brand} renderLink={renderNavLink} />}
-          onSearchClick={() => setPaletteOpen(true)}
+          onSearchClick={() => openPalette(true)}
           actions={
             <>
               <NotificationsMenu />
@@ -99,7 +110,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     >
       {(shellHeader || !currentItem) && <PageHeader title={currentItem?.label ?? "Dashboard"} breadcrumb={breadcrumb.length ? breadcrumb : undefined} />}
       <RequirePermission permission={currentItem?.permission}>{children}</RequirePermission>
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} groups={paletteGroups} placeholder="Search modules…" />
+      {paletteRequested && <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} groups={paletteGroups} placeholder="Search modules…" />}
     </ERPLayout>
   );
 }

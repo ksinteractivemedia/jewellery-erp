@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { PackageCheck } from "lucide-react";
+import { EmptyState } from "@jewellery/ui";
 import { useGoodsReceipts } from "../../lib/api/purchasing";
 import { Load, Table, Td, Th, day, grams, money } from "./shared";
 
@@ -12,7 +14,7 @@ export function GoodsReceiptsView() {
   return (
     <div className="flex flex-col gap-4">
       <Load q={q}>
-        {items.length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">No goods have been received yet.</p> : (
+        {items.length === 0 ? <EmptyState icon={<PackageCheck className="h-8 w-8" />} title="No goods have been received yet" description="A receipt appears here once a purchase order is received against." /> : (
           <Table testId="grn-table"><thead><tr><Th>GRN</Th><Th>PO</Th><Th>Supplier</Th><Th>Received</Th><Th right>Lines</Th><Th>By</Th></tr></thead><tbody>
             {items.map((g) => (
               <tr key={g.id} className={`cursor-pointer hover:bg-surface-sunken ${sel === g.id ? "bg-surface-sunken" : ""}`} onClick={() => setSel(g.id)} data-testid="grn-row">

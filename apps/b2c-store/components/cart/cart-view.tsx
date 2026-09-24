@@ -45,7 +45,7 @@ export function CartView() {
                 {l.variantLabel && <p className="text-body-sm text-muted">Size {l.variantLabel}</p>}
                 <PriceTag price={l.unitPrice} size="md" />
                 {l.notes.map((n) => <p key={n} className="text-body-sm text-warning" role="status">{n}</p>)}
-                <div className="mt-auto flex items-end justify-between gap-4 pt-2">
+                <div className="mt-auto flex flex-wrap items-end justify-between gap-x-4 gap-y-1 pt-2">
                   {l.maxQuantity > 0 ? (
                     <div className="inline-flex items-center border border-border" role="group" aria-label={`Quantity of ${l.name}`}>
                       <button type="button" className="flex h-11 w-11 items-center justify-center hover:bg-surface-sunken" onClick={() => cart.setQuantity(key, l.quantity - 1)} aria-label="Decrease quantity"><Minus className="h-4 w-4" /></button>

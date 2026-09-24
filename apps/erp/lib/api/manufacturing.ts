@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { JobWorkOrder, ProductionOrder, ReconciliationRow } from "@jewellery/types";
 import { apiFetch } from "../auth/api-client";
 import { useApiMutation } from "./queries";
@@ -44,8 +44,8 @@ export const manufacturingApi = {
 const ALL = [["manufacturing"]] as const;
 export const useManufacturingDashboard = () => useQuery({ queryKey: ["manufacturing", "dashboard"], queryFn: manufacturingApi.dashboard });
 export const useReconciliation = (discrepancyOnly?: boolean) => useQuery({ queryKey: ["manufacturing", "reconciliation", discrepancyOnly], queryFn: () => manufacturingApi.reconciliation(discrepancyOnly) });
-export const useProductionOrders = (status?: string) => useQuery({ queryKey: ["manufacturing", "production-orders", status], queryFn: () => manufacturingApi.productionOrders(status) });
-export const useJobWorkOrders = (status?: string) => useQuery({ queryKey: ["manufacturing", "job-work-orders", status], queryFn: () => manufacturingApi.jobWorkOrders(status) });
+export const useProductionOrders = (status?: string) => useQuery({ queryKey: ["manufacturing", "production-orders", status], queryFn: () => manufacturingApi.productionOrders(status), placeholderData: keepPreviousData });
+export const useJobWorkOrders = (status?: string) => useQuery({ queryKey: ["manufacturing", "job-work-orders", status], queryFn: () => manufacturingApi.jobWorkOrders(status), placeholderData: keepPreviousData });
 
 /** Any manufacturing action refreshes every manufacturing list — issuing material changes the order, the reconciliation view and the dashboard at once. */
 export const useManufacturingAction = <V,>(fn: (v: V) => Promise<unknown>, success: string, onSuccess?: () => void) => useApiMutation(fn, ALL as unknown as readonly (readonly string[])[], { success, ...(onSuccess ? { onSuccess } : {}) });

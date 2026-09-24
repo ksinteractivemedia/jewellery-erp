@@ -18,9 +18,9 @@ export function Pagination({ page, pageCount, onPageChange, className, summary }
   const pages = React.useMemo(() => visiblePages(page, pageCount), [page, pageCount]);
 
   return (
-    <nav aria-label="Pagination" className={cn("flex items-center justify-between gap-3", className)}>
+    <nav aria-label="Pagination" className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-2", className)}>
       <span className="text-body-sm text-muted">{summary}</span>
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         <Button
           variant="ghost"
           size="icon"

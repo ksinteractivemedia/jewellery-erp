@@ -34,7 +34,7 @@ export const accountingApi = {
 };
 
 const ALL = [["accounting"]] as const;
-export const useChartOfAccounts = (o: { isActive?: boolean } = {}) => useQuery({ queryKey: ["accounting", "accounts", o], queryFn: () => accountingApi.accounts(o) });
+export const useChartOfAccounts = (o: { isActive?: boolean } = {}) => useQuery({ queryKey: ["accounting", "accounts", o], queryFn: () => accountingApi.accounts(o), staleTime: 5 * 60_000 });
 export const useJournal = (o: { accountId?: string; referenceType?: string; from?: string; to?: string } = {}) => useQuery({ queryKey: ["accounting", "journal", o], queryFn: () => accountingApi.journal(o) });
 export const useTrialBalance = (asOf?: string) => useQuery({ queryKey: ["accounting", "trial-balance", asOf], queryFn: () => accountingApi.trialBalance(asOf) });
 export const useReceivablesDashboard = () => useQuery({ queryKey: ["accounting", "receivables", "dashboard"], queryFn: accountingApi.receivablesDashboard });

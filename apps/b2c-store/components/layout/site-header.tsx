@@ -55,8 +55,8 @@ export function SiteHeader({ content: initialContent, navigation: initialNav }: 
           </nav>
         </div>
 
-        <Link href="/" className="justify-self-center text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`${content.brandName} — home`}>
-          <span className="heading-display text-[1.375rem] uppercase tracking-[0.32em] sm:text-[1.625rem]">{content.brandName}</span>
+        <Link href="/" className="min-w-0 max-w-full justify-self-center text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`${content.brandName} — home`}>
+          <span className="heading-display block truncate text-[1.375rem] uppercase tracking-[0.32em] sm:text-[1.625rem]">{content.brandName}</span>
         </Link>
 
         <div className="flex items-center justify-end">

@@ -33,6 +33,7 @@ import { createInventoryRouter } from "./routes/inventory.routes";
 import { createMediaRouter } from "./routes/media.routes";
 import { createPricingRouter } from "./routes/pricing.routes";
 import { createAccountingRouter } from "./routes/accounting.routes";
+import { createReportsRouter } from "./routes/reports.routes";
 import { createHallmarkingRouter } from "./routes/hallmarking.routes";
 import { createManufacturingRouter } from "./routes/manufacturing.routes";
 import { createProductsRouter } from "./routes/products.routes";
@@ -110,7 +111,8 @@ export function createApp({ config, emailSender, mediaStorage, dashboardProvider
   app.use("/api/exchange", createExchangeRouter({ authenticate }));
   app.use("/api/repair", createRepairRouter({ authenticate }));
   app.use("/api/accounting", createAccountingRouter({ authenticate }));
-  app.use("/api/store", createCheckoutRouter({ orders: ordersModule, writeLimiter: limiters.storefrontWrite, optionalAuthenticate }));
+  app.use("/api/reports", createReportsRouter({ authenticate }));
+  app.use("/api/store", createCheckoutRouter({ orders: ordersModule, writeLimiter: limiters.storefrontWrite, webhookLimiter: limiters.webhook, optionalAuthenticate }));
   app.use("/api/store", createStorefrontRouter({ storefront: createStorefrontService({ media }), writeLimiter: limiters.storefrontWrite }));
   app.use("/api/dashboard", createDashboardRouter({ authenticate, dashboard: createDashboardService({ providers: dashboardProviders }) }));
   app.use("/api/pricing", createPricingRouter({ authenticate, preview: createPricingPreviewService() }));

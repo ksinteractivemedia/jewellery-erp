@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { CreditCard } from "lucide-react";
+import { EmptyState } from "@jewellery/ui";
 import type { B2BCustomerRow } from "../../lib/api/b2b";
 import type { B2BInvoice, B2BPayment, B2BSalesOrder } from "@jewellery/types";
 import { B2B_PAYMENT_METHODS, PERMISSIONS as P } from "@jewellery/types";
@@ -130,7 +132,7 @@ export function CreditOrdersView() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter">{tabs.map(([v, l]) => <button key={l} role="tab" aria-selected={g === v} className={`h-8 rounded-full border px-3 text-caption ${g === v ? "border-foreground bg-foreground text-background" : "border-border bg-surface"}`} onClick={() => setG(v)} data-testid={`tab-${v || "all"}`}>{l}</button>)}</div>
-      <Load q={q}>{items.length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing here.</p> : (
+      <Load q={q}>{items.length === 0 ? <EmptyState icon={<CreditCard className="h-8 w-8" />} title="No orders match" description="Try a different filter — orders appear here once a wholesale customer converts a purchase order." /> : (
         <Table testId="b2b-orders"><thead><tr><Th>Order</Th><Th>Customer</Th><Th>PO / ref</Th><Th right>Total</Th><Th>Status</Th><Th>Actions</Th></tr></thead><tbody>{items.map((o) => <OrderRow key={o.id + o.status} o={o} onDone={() => q.refetch()} />)}</tbody></Table>
       )}</Load>
     </div>

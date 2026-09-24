@@ -16,6 +16,8 @@ A production-grade Jewellery ERP + Commerce platform for an Indian jewellery bus
 - [docs/business-rules.md](docs/business-rules.md) — the rules that must hold regardless of channel
 - [docs/data-model.md](docs/data-model.md) — MongoDB collections and relationships
 - [docs/design-system.md](docs/design-system.md) — tokens, typography, component rules
+- [docs/ux-audit.md](docs/ux-audit.md) — prioritized UX findings per app and what's already fixed vs. still open
+- [docs/security-audit.md](docs/security-audit.md) — verified security posture per area, the six specifically-checked attack scenarios, and what's fixed vs. still open
 - [docs/progress.md](docs/progress.md) — what phase we're in, what's done, what's next
 - [tests/test-plan.md](tests/test-plan.md) — testing strategy per phase
 

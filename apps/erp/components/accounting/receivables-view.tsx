@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { PageHeader } from "@jewellery/ui";
+import { CheckCircle2 } from "lucide-react";
+import { EmptyState, PageHeader } from "@jewellery/ui";
 import { useAgeing, useOutstanding, useReceivablesDashboard } from "../../lib/api/accounting";
 import { Load, Stat, Status, Table, Td, Th, day, rupees } from "./shared";
 
@@ -74,7 +75,7 @@ export function ReceivablesView() {
           <input className="h-9 w-56 rounded-md border border-border bg-surface px-3 text-body-sm" placeholder="Filter by customer…" value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} data-testid="outstanding-filter" />
         </div>
         <Load q={out}>
-          {rows.length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing outstanding.</p> : (
+          {rows.length === 0 ? <EmptyState icon={<CheckCircle2 className="h-8 w-8" />} title="Nothing outstanding" description="Every issued invoice has been paid in full." /> : (
             <Table testId="outstanding-table"><thead><tr><Th>Invoice</Th><Th>Customer</Th><Th>Issued</Th><Th>Due</Th><Th right>Total</Th><Th right>Paid</Th><Th right>Balance</Th><Th>Status</Th></tr></thead><tbody>
               {rows.map((r) => (
                 <tr key={r.invoiceId} data-testid="outstanding-row">

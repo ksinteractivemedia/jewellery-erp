@@ -45,9 +45,9 @@ export function CartDrawer() {
                       {l.notes.map((n) => <p key={n} className="text-caption text-warning">{n}</p>)}
                       {l.maxQuantity > 0 && (
                         <div className="mt-auto inline-flex w-fit items-center border border-border" role="group" aria-label={`Quantity of ${l.name}`}>
-                          <button type="button" className="flex h-9 w-9 items-center justify-center hover:bg-surface-sunken" onClick={() => cart.setQuantity(key, l.quantity - 1)} aria-label="Decrease quantity"><Minus className="h-3.5 w-3.5" /></button>
+                          <button type="button" className="flex h-11 w-11 items-center justify-center hover:bg-surface-sunken" onClick={() => cart.setQuantity(key, l.quantity - 1)} aria-label="Decrease quantity"><Minus className="h-3.5 w-3.5" /></button>
                           <span className="tabular w-8 text-center text-body-sm" aria-live="polite">{l.quantity}</span>
-                          <button type="button" className="flex h-9 w-9 items-center justify-center hover:bg-surface-sunken disabled:opacity-30" disabled={l.quantity >= l.maxQuantity} onClick={() => cart.setQuantity(key, l.quantity + 1)} aria-label="Increase quantity"><Plus className="h-3.5 w-3.5" /></button>
+                          <button type="button" className="flex h-11 w-11 items-center justify-center hover:bg-surface-sunken disabled:opacity-30" disabled={l.quantity >= l.maxQuantity} onClick={() => cart.setQuantity(key, l.quantity + 1)} aria-label="Increase quantity"><Plus className="h-3.5 w-3.5" /></button>
                         </div>
                       )}
                     </div>

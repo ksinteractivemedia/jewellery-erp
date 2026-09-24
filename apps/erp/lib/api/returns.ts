@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { Return } from "@jewellery/types";
 import { apiFetch } from "../auth/api-client";
 import { useApiMutation } from "./queries";
@@ -29,6 +29,6 @@ export const returnsApi = {
 
 const ALL = [["returns"]] as const;
 export const useReturnsDashboard = () => useQuery({ queryKey: ["returns", "dashboard"], queryFn: returnsApi.dashboard });
-export const useReturns = (o: { status?: string; channel?: string } = {}) => useQuery({ queryKey: ["returns", "list", o], queryFn: () => returnsApi.list(o) });
+export const useReturns = (o: { status?: string; channel?: string } = {}) => useQuery({ queryKey: ["returns", "list", o], queryFn: () => returnsApi.list(o), placeholderData: keepPreviousData });
 export const useReturn = (id: string) => useQuery({ queryKey: ["returns", "detail", id], queryFn: () => returnsApi.get(id), enabled: !!id });
 export const useReturnAction = <V, R>(fn: (v: V) => Promise<R>, success: string, onSuccess?: (r: R) => void) => useApiMutation(fn, ALL as unknown as readonly (readonly string[])[], { success, ...(onSuccess ? { onSuccess } : {}) });

@@ -2,6 +2,7 @@ import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ROLE_NAMES as R } from "@jewellery/types";
 import { PASSWORD, bearer, buildTestApp, createStaff, loginAs, seedRbac } from "../../test/helpers";
+import { AuditLogModel } from "../modules/audit/audit-log.model";
 import { SessionModel } from "../modules/auth/session.model";
 
 let t: ReturnType<typeof buildTestApp>;
@@ -94,6 +95,20 @@ describe("POST /api/auth/refresh", () => {
     const replay = await request(t.app).post("/api/auth/refresh").set("Cookie", oldCookie);
     expect(replay.status).toBe(401);
     expect(refreshCookie(replay)).toMatch(/Expires=Thu, 01 Jan 1970/); // cookie cleared
+    expect(await AuditLogModel.countDocuments({ action: "auth.session_reuse_detected" })).toBe(1);
+  });
+
+  it("audits a rejected refresh even when it isn't token reuse — a malformed cookie, an unknown session, an expired or already-revoked one all leave a trail, not just the reuse case", async () => {
+    const { email } = await createStaff(R.VIEWER);
+    const { res: login } = await loginAs(t.app, email);
+    const cookie = refreshCookie(login)!;
+
+    expect((await request(t.app).post("/api/auth/refresh").set("Cookie", "jerp_rt=not-a-real-token")).status).toBe(401);
+    expect(await AuditLogModel.countDocuments({ action: "auth.token_refresh_rejected", "metadata.reason": "malformed_token" })).toBe(1);
+
+    await request(t.app).post("/api/auth/logout").set("Cookie", cookie);
+    expect((await request(t.app).post("/api/auth/refresh").set("Cookie", cookie)).status).toBe(401);
+    expect(await AuditLogModel.countDocuments({ action: "auth.token_refresh_rejected", "metadata.reason": "session_not_found_or_revoked" })).toBe(1);
   });
 
   it("401 without a cookie; does not accept the token from the body or a header", async () => {

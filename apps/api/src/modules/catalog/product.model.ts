@@ -60,6 +60,8 @@ const productSchema = new Schema<ProductAttrs>(
 );
 
 productSchema.index({ categoryId: 1, isActive: 1 });
+/** The B2B wholesale catalogue's own base query on every browse/search/filter — was an unindexed collection scan. */
+productSchema.index({ b2bEnabled: 1, isActive: 1 });
 productSchema.index({ collectionIds: 1 });
 productSchema.index({ metalId: 1 });
 productSchema.index({ tags: 1 });

@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
+import { EmptyState } from "@jewellery/ui";
 import { useReconciliation } from "../../lib/api/manufacturing";
 import { Load, Table, Td, Th, grams } from "./shared";
 
@@ -24,7 +26,7 @@ export function ReconciliationView() {
         <label className="flex items-center gap-2 text-body-sm"><input type="checkbox" checked={discrepancyOnly} onChange={(e) => setDiscrepancyOnly(e.target.checked)} data-testid="recon-discrepancy-only" />Discrepancies only</label>
       </div>
       <Load q={q}>
-        {items.length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing has been issued yet.</p> : (
+        {items.length === 0 ? <EmptyState icon={<AlertTriangle className="h-8 w-8" />} title={discrepancyOnly ? "No discrepancies" : "Nothing has been issued yet"} description={discrepancyOnly ? "Every reconciled order accounts for its material in full." : "A row appears here once material is issued to a production or job-work order."} /> : (
           <Table testId="reconciliation-table"><thead><tr><Th>Order</Th><Th>Kind</Th><Th>Party / design</Th><Th>Status</Th><Th right>Issued</Th><Th right>Returned</Th><Th right>Finished</Th><Th right>Wastage</Th><Th right>Discrepancy</Th></tr></thead><tbody>
             {items.map((r) => (
               <tr key={`${r.kind}-${r.id}`} className={r.hasDiscrepancy ? "bg-danger-subtle" : undefined} data-testid="reconciliation-row">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { Exchange } from "@jewellery/types";
 import { apiFetch } from "../auth/api-client";
 import { useApiMutation } from "./queries";
@@ -23,6 +23,6 @@ export const exchangeApi = {
 
 const ALL = [["exchange"]] as const;
 export const useExchangeDashboard = () => useQuery({ queryKey: ["exchange", "dashboard"], queryFn: exchangeApi.dashboard });
-export const useExchanges = (o: { status?: string } = {}) => useQuery({ queryKey: ["exchange", "list", o], queryFn: () => exchangeApi.list(o) });
+export const useExchanges = (o: { status?: string } = {}) => useQuery({ queryKey: ["exchange", "list", o], queryFn: () => exchangeApi.list(o), placeholderData: keepPreviousData });
 export const useExchange = (id: string) => useQuery({ queryKey: ["exchange", "detail", id], queryFn: () => exchangeApi.get(id), enabled: !!id });
 export const useExchangeAction = <V, R>(fn: (v: V) => Promise<R>, success: string, onSuccess?: (r: R) => void) => useApiMutation(fn, ALL as unknown as readonly (readonly string[])[], { success, ...(onSuccess ? { onSuccess } : {}) });

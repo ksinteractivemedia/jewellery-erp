@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Paperclip, X } from "lucide-react";
+import { ClipboardList, Paperclip, X } from "lucide-react";
+import { EmptyState } from "@jewellery/ui";
 import type { B2BPurchaseOrder } from "@jewellery/types";
 import { PERMISSIONS as P } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -146,7 +147,7 @@ export function PurchaseOrdersView() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter">{GROUPS.map(([v, l]) => <button key={l} role="tab" aria-selected={g === v} className={`h-8 rounded-full border px-3 text-caption ${g === v ? "border-foreground bg-foreground text-background" : "border-border bg-surface"}`} onClick={() => setG(v)}>{l}</button>)}</div>
       <Load q={q}>
-        {items.length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing here.</p> : (
+        {items.length === 0 ? <EmptyState icon={<ClipboardList className="h-8 w-8" />} title="No purchase orders match" description="Try a different filter — a purchase order appears here once a wholesale customer submits one." /> : (
           <Table testId="b2b-po-table"><thead><tr><Th>PO</Th><Th>Customer</Th><Th>Their ref</Th><Th>Submitted</Th><Th right>Total</Th><Th>Credit</Th><Th>Status</Th></tr></thead><tbody>
             {items.map((p) => <tr key={p.id} className={`cursor-pointer hover:bg-surface-sunken ${sel === p.id ? "bg-surface-sunken" : ""}`} onClick={() => setSel(p.id)} data-testid="b2b-po-row"><Td className="font-medium">{p.poNo}</Td><Td>{p.customer.name}</Td><Td className="text-muted">{p.customerPoRef ?? "—"}</Td><Td>{p.submittedAt ? day(p.submittedAt) : "—"}</Td><Td right>{money(p.totals.total)}</Td><Td>{p.credit?.requiresApproval ? <span className="text-danger">Over terms</span> : <span className="text-muted">OK</span>}</Td><Td><Status s={p.status} /></Td></tr>)}
           </tbody></Table>

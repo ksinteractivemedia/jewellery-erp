@@ -22,8 +22,8 @@ export const useProducts = (query: ProductListQueryInput) =>
 
 export const useProduct = (id: string) => useQuery({ queryKey: catalogKeys.product(id), queryFn: () => catalogApi.getProduct(id) });
 export const useCatalogMeta = () => useQuery({ queryKey: catalogKeys.meta, queryFn: catalogApi.meta, staleTime: 5 * 60_000 });
-export const useCategories = () => useQuery({ queryKey: catalogKeys.categories, queryFn: catalogApi.listCategories });
-export const useCollections = () => useQuery({ queryKey: catalogKeys.collections, queryFn: catalogApi.listCollections });
+export const useCategories = () => useQuery({ queryKey: catalogKeys.categories, queryFn: catalogApi.listCategories, staleTime: 5 * 60_000 });
+export const useCollections = () => useQuery({ queryKey: catalogKeys.collections, queryFn: catalogApi.listCollections, staleTime: 5 * 60_000 });
 
 /**
  * A mutation that, on success, refreshes every cache in `invalidate` (the catalogue and inventory are

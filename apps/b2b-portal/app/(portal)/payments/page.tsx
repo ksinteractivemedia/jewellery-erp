@@ -39,7 +39,7 @@ function Payments() {
 
   return (
     <>
-      <PageHead title="Payments" sub="Payments you’ve made by bank transfer, cheque or cash. A payment counts against an invoice only after we verify and apply it." actions={<button className="btn btn-primary" onClick={() => setOpen((v) => !v)} data-testid="report-payment">Report a payment</button>} />
+      <PageHead title="Payments" sub="Payments you’ve made by bank transfer, cheque or cash. A payment counts against an invoice only after we verify and apply it." actions={<button className={`btn ${open ? "btn-outline" : "btn-primary"}`} onClick={() => setOpen((v) => !v)} data-testid="report-payment">{open ? "Close" : "Report a payment"}</button>} />
       {done && <p className="mb-4 rounded-md border border-success bg-success-subtle p-3 text-success" role="status" data-testid="payment-done">{done}</p>}
       {open && (
         <form onSubmit={submit} className="card mb-5 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3" aria-label="Report a payment" data-testid="payment-form">

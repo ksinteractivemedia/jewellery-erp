@@ -34,7 +34,7 @@ export interface AppConfig {
     /** Absolute base URL browsers use to reach this API — media URLs are built from it. */
     publicBaseUrl: string;
   };
-  rateLimit: { enabled: boolean; login: RateLimitRule; forgotPassword: RateLimitRule; storefrontWrite: RateLimitRule };
+  rateLimit: { enabled: boolean; login: RateLimitRule; forgotPassword: RateLimitRule; storefrontWrite: RateLimitRule; webhook: RateLimitRule };
   checkout: {
     /** How long a customer's pieces are held while they pay. */
     reservationMinutes: number;
@@ -99,6 +99,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       forgotPassword: { windowMs: 60 * 60_000, max: 5 },
       // Public, unauthenticated endpoints that write (newsletter) or do real work (cart quotes).
       storefrontWrite: { windowMs: 60_000, max: 30 },
+      // Unauthenticated by design (a signature proves the sender, not a session) — a per-IP cap is defense-in-depth
+      // against flooding, generous enough that a provider's own legitimate retry bursts never trip it.
+      webhook: { windowMs: 60_000, max: 120 },
     },
     checkout: { reservationMinutes: e.CHECKOUT_RESERVATION_MINUTES, storeBaseUrl: e.STORE_BASE_URL.replace(/\/$/, "") },
   };

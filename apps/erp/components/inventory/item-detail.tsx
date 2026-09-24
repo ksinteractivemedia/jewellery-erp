@@ -34,6 +34,7 @@ import {
 } from "@jewellery/ui";
 import { inventoryApi } from "../../lib/api/inventory";
 import { useInventoryItem, useInventoryMutation } from "../../lib/api/inventory-queries";
+import { errorMessage } from "../../lib/api/queries";
 import { ApiError } from "../../lib/auth/api-client";
 import { useAuth } from "../../lib/auth/auth-context";
 import { LOCATION_TYPE_LABELS, rupees, shortId } from "../../lib/inventory/format";
@@ -71,7 +72,7 @@ export function ItemDetailView({ id }: { id: string }) {
     return (
       <>
         <PageHeader title={missing ? "Piece not found" : "Couldn't load piece"} breadcrumb={crumbs} />
-        {missing ? <EmptyState title="This piece doesn't exist" action={<Button asChild variant="secondary"><Link href="/inventory/stock">Back to inventory</Link></Button>} /> : <Alert variant="danger">{error instanceof Error ? error.message : "Something went wrong."}</Alert>}
+        {missing ? <EmptyState title="This piece doesn't exist" action={<Button asChild variant="secondary"><Link href="/inventory/stock">Back to inventory</Link></Button>} /> : <Alert variant="danger">{errorMessage(error)}</Alert>}
       </>
     );
   }

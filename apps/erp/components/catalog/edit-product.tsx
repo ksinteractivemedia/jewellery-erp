@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { PERMISSIONS } from "@jewellery/types";
 import { Alert, Button, EmptyState, PageHeader, Skeleton } from "@jewellery/ui";
-import { useProduct } from "../../lib/api/queries";
+import { errorMessage, useProduct } from "../../lib/api/queries";
 import { ApiError } from "../../lib/auth/api-client";
 import { RequirePermission } from "../auth/require-permission";
 import { ProductForm } from "./product-form";
@@ -22,7 +22,7 @@ export function EditProduct({ id }: { id: string }) {
           {error instanceof ApiError && error.status === 404 ? (
             <EmptyState title="This product doesn't exist" action={<Button asChild variant="secondary"><Link href="/inventory/products">Back to products</Link></Button>} />
           ) : (
-            <Alert variant="danger">{error instanceof Error ? error.message : "Couldn't load the product."}</Alert>
+            <Alert variant="danger">{errorMessage(error)}</Alert>
           )}
         </>
       ) : (

@@ -21,7 +21,7 @@ export function MobileNavigation({ groups, brand, renderLink, open, onOpenChange
         <button
           type="button"
           aria-label="Open navigation menu"
-          className="flex h-9 w-9 items-center justify-center rounded-md text-foreground hover:bg-surface-sunken md:hidden"
+          className="-ml-1 flex h-11 w-11 items-center justify-center rounded-md text-foreground hover:bg-surface-sunken md:hidden"
         >
           <Menu className="h-5 w-5" />
         </button>

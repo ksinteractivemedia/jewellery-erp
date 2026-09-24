@@ -346,9 +346,18 @@ The task named these as entities; this layer deliberately does not duplicate the
 - `postPaymentMade` / its reversal — called from `procurement/supplier-payment.service.ts`'s `allocateSupplierPayment()`/`reverseSupplierPayment()`.
 - Credit/debit notes post from their own services, standalone documents against a customer/supplier (and optionally an invoice), not tied to any of the above.
 
+## 7F. Reporting — **implemented** (Phase 10)
+
+`apps/api/src/modules/reports`. **No new collection** — every report is computed live, by aggregation, from collections other modules already own (`orders`, `b2binvoices`, `b2bpurchaseorders`, `inventoryledgers`, `inventoryitems`, `productionorders`, `jobworkorders`, and, for B2B outstanding/ageing, Accounting's own read model). A `ReportDefinition` (title, filters, columns) lives in code (`report-registry.ts`), not the database — the same "policy as code" treatment as `role-matrix.ts`/`DEFAULT_CHART_OF_ACCOUNTS`, since a report's shape is a deploy-time decision, not business data an admin edits.
+
+Indexes added on existing models, matched to the reporting module's own query patterns (business-rules.md §21.3 — never a full collection scan for a date-ranged report):
+- `orders`: `{ status: 1, placedAt: -1 }`
+- `b2binvoices`: `{ customerId: 1, dueDate: 1 }` and `{ status: 1, issueDate: 1 }`
+- `b2bpurchaseorders`: `{ customerId: 1, createdAt: -1 }` and `{ status: 1, createdAt: -1 }`
+
 ## 8. Not yet implemented (still Phase 0 proposals)
 
-Orders (`orders`, `carts`, `purchaseOrders`) — **now implemented**, see §7 (B2C/B2B) and §7A (procurement) — Manufacturing & job work — **now implemented**, see §7B — Hallmarking — **now implemented**, see §7C — Returns, exchange & repair — **now implemented**, see §7D — Accounting (chart of accounts, general ledger, credit/debit notes) — **now implemented**, see §7E — `creditAccounts` (a B2C credit account; B2B's own credit is §7) is still exactly as sketched in the original Phase 0 draft of this document — see [progress.md](./progress.md) for which phase builds each one.
+Orders (`orders`, `carts`, `purchaseOrders`) — **now implemented**, see §7 (B2C/B2B) and §7A (procurement) — Manufacturing & job work — **now implemented**, see §7B — Hallmarking — **now implemented**, see §7C — Returns, exchange & repair — **now implemented**, see §7D — Accounting (chart of accounts, general ledger, credit/debit notes) — **now implemented**, see §7E — Reporting — **now implemented**, see §7F — `creditAccounts` (a B2C credit account; B2B's own credit is §7) is still exactly as sketched in the original Phase 0 draft of this document — see [progress.md](./progress.md) for which phase builds each one.
 
 ## 9. Relationships at a glance (updated for Product Master)
 

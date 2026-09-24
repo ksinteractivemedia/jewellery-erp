@@ -113,30 +113,39 @@ export function createAuthService(deps: { config: AppConfig; emailSender: EmailS
      * whole session is revoked and the user must sign in again.
      */
     async refresh(presented: unknown, meta: RequestMeta): Promise<IssuedSession> {
+      // Every rejection short-circuits through here (except the benign compare-and-swap race below, which
+      // means two of the caller's own concurrent refreshes raced, not an attack) so the audit trail covers
+      // a malformed/expired/deactivated-user refresh attempt, not only the reuse-detected case.
+      const reject = async (reason: string, actorId?: string) => {
+        await audit(meta, { action: AUDIT_ACTIONS.TOKEN_REFRESH_REJECTED, outcome: "DENIED", actorId, metadata: { reason } });
+        throw new AuthenticationError();
+      };
+
       const parsed = parseOpaqueToken(presented);
-      if (!parsed) throw new AuthenticationError();
+      if (!parsed) return reject("malformed_token");
 
       const session = await SessionModel.findById(parsed.id);
-      if (!session || session.revokedAt) throw new AuthenticationError();
+      if (!session || session.revokedAt) return reject("session_not_found_or_revoked", session ? String(session.userId) : undefined);
 
       const now = Date.now();
       if (session.idleExpiresAt.getTime() <= now || session.absoluteExpiresAt.getTime() <= now) {
         await revokeSession(parsed.id, "EXPIRED");
-        throw new AuthenticationError();
+        return reject("session_expired", String(session.userId));
       }
 
       if (!secretMatches(parsed.secret, session.refreshTokenHash)) {
         if (secretMatches(parsed.secret, session.previousRefreshTokenHash)) {
           await revokeSession(parsed.id, "REUSE_DETECTED");
           await audit(meta, { action: AUDIT_ACTIONS.SESSION_REUSE_DETECTED, outcome: "DENIED", actorId: String(session.userId), targetType: "session", targetId: parsed.id });
+          throw new AuthenticationError();
         }
-        throw new AuthenticationError();
+        return reject("secret_mismatch", String(session.userId));
       }
 
       const user = await UserModel.findById(session.userId);
       if (!user || !user.isActive) {
         await revokeSession(parsed.id, "USER_DEACTIVATED");
-        throw new AuthenticationError();
+        return reject("user_inactive_or_missing", String(session.userId));
       }
 
       const { token: refreshToken, secretHash } = generateOpaqueToken(parsed.id);

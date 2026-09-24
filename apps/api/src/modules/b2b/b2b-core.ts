@@ -271,3 +271,40 @@ export async function creditFor(customerId: string | Types.ObjectId, ctx: Pick<C
     today: ctx.today,
   });
 }
+
+/**
+ * The same credit math as `creditFor`, for every customer given at once — 3 queries total (invoices, live orders,
+ * allocations) instead of `creditFor`'s 3 per customer. Built for reports/dashboards that need every B2B customer's
+ * position together; a single customer's own check (checkout, the portal's own credit panel) still wants `creditFor`.
+ */
+export async function creditPositionsFor(customers: { id: string | Types.ObjectId; profile: NonNullable<CustomerAttrs["b2b"]> }[], today: string): Promise<Map<string, CreditPosition>> {
+  if (!customers.length) return new Map();
+  const ids = customers.map((c) => (typeof c.id === "string" ? new Types.ObjectId(c.id) : c.id));
+  const [invoices, live] = await Promise.all([
+    InvoiceModel.find({ customerId: { $in: ids }, status: "ISSUED" }).select("customerId totals dueDate").lean(),
+    SalesOrderModel.find({ customerId: { $in: ids }, status: { $in: ["CONFIRMED", "PARTIALLY_ALLOCATED", "ALLOCATED", "PARTIALLY_FULFILLED"] } }).select("customerId lines invoiced").lean(),
+  ]);
+  const paid = await paidByInvoice(invoices.map((i) => i._id));
+  const invoicesByCustomer = new Map<string, typeof invoices>();
+  for (const inv of invoices) invoicesByCustomer.set(id(inv.customerId), [...(invoicesByCustomer.get(id(inv.customerId)) ?? []), inv]);
+  const liveByCustomer = new Map<string, typeof live>();
+  for (const o of live) liveByCustomer.set(id(o.customerId), [...(liveByCustomer.get(id(o.customerId)) ?? []), o]);
+
+  const out = new Map<string, CreditPosition>();
+  for (const c of customers) {
+    const custInvoices = invoicesByCustomer.get(id(c.id)) ?? [];
+    const committed = (liveByCustomer.get(id(c.id)) ?? []).map((o) => o.lines.reduce((sum, l, i) => sum + (l.quantity - (o.invoiced.find((x) => x.lineIndex === i)?.quantity ?? 0)) * l.unitTotal, 0));
+    out.set(
+      id(c.id),
+      creditPosition({
+        limit: c.profile.creditLimit,
+        onHold: c.profile.creditHold,
+        blockOnOverdue: c.profile.blockOnOverdue,
+        invoices: custInvoices.map((i) => ({ balance: i.totals.total - (paid.get(id(i._id)) ?? 0), dueDate: i.dueDate })).filter((i) => i.balance > 0),
+        committedOrders: committed,
+        today,
+      })
+    );
+  }
+  return out;
+}

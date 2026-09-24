@@ -595,6 +595,22 @@ describe("duplicate payment webhook", () => {
     expect(res.body.status).toBe("unknown_payment");
     expect((await api.webhook(sandbox.complete((await started()).ref, "CAPTURED"), "nosuchprovider")).status).toBe(400);
   });
+
+  it("rate-limits the unauthenticated webhook route per IP — defense-in-depth against flooding, never a trust boundary since every request still needs a valid signature", async () => {
+    const limitedSandbox = createSandboxProvider();
+    const limited = buildTestApp({ rateLimit: { enabled: true, webhook: { windowMs: 60_000, max: 2 } } }, { paymentProviders: [limitedSandbox] });
+    const place = await request(limited.app).post("/api/store/checkout/orders").send({ lines: bag(), contact, deliveryCode: "standard", agreedTotal: BAND_TOTAL, idempotencyKey: key() });
+    expect(place.status, JSON.stringify(place.body)).toBe(201);
+    const pay = await request(limited.app).post(`/api/store/orders/${place.body.order.orderNo}/payments`).set("X-Order-Token", place.body.accessToken).send({ returnPath: "/checkout/return" });
+    const ref = `sbx_pay_${pay.body.payment.paymentId}`;
+    // Redelivering the same signed event is itself safe (idempotent, per "duplicate payment webhook" above) — this
+    // only proves the limiter trips on the 3rd call within the window, independent of what the payload contains.
+    const hook = limitedSandbox.complete(ref, "CAPTURED");
+    const send = () => request(limited.app).post("/api/store/payments/webhooks/sandbox").set(hook.headers).set("content-type", "application/json").send(hook.body);
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(429);
+  });
 });
 
 describe("cancellation", () => {

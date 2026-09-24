@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { PageHeader } from "@jewellery/ui";
+import { Receipt } from "lucide-react";
+import { EmptyState, PageHeader } from "@jewellery/ui";
 import { PERMISSIONS as P } from "@jewellery/types";
 import type { CreditNote } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -108,7 +109,7 @@ export function CreditNotesView() {
       />
       {creating && <NewForm onDone={() => { setCreating(false); q.refetch(); }} />}
       <Load q={q}>
-        {(q.data ?? []).length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">No credit notes yet.</p> : (
+        {(q.data ?? []).length === 0 ? <EmptyState icon={<Receipt className="h-8 w-8" />} title="No credit notes yet" description="Issue one against a customer invoice for a sales return, a price correction, or goodwill." /> : (
           <Table testId="credit-notes-table"><thead><tr><Th>Note</Th><Th>Customer</Th><Th>Invoice</Th><Th>Reason</Th><Th right>Total</Th><Th>Date</Th><Th>Status</Th><Th></Th></tr></thead><tbody>
             {(q.data ?? []).map((n) => <Row key={n.id} note={n} onDone={() => q.refetch()} />)}
           </tbody></Table>

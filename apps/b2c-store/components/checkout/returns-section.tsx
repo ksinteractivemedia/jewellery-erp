@@ -76,7 +76,7 @@ export function ReturnsSection({ order, token }: { order: StoreOrder; token: str
             <div className="flex flex-col gap-3 border border-border p-4" data-testid="returns-form">
               <p className="text-body-sm font-medium">Which piece(s)?</p>
               {order.items.map((item) => (
-                <label key={item.id} className="flex items-center gap-2 text-body-sm">
+                <label key={item.id} className="flex min-h-11 items-center gap-2 text-body-sm">
                   <input type="checkbox" checked={lineIds.includes(item.id)} onChange={() => toggle(item.id)} data-testid="returns-line" />
                   {item.name} ({item.sku})
                 </label>

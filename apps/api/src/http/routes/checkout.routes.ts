@@ -16,7 +16,7 @@ const TOKEN_HEADER = "x-order-token";
  * price, a discount or a stock level from the browser — the schemas are strict, so a body that tries is refused outright.
  * Payment-provider webhooks live here too: they carry no token but a signature, checked by the provider's adapter.
  */
-export function createCheckoutRouter(deps: { orders: OrdersModule; writeLimiter: RequestHandler; optionalAuthenticate: RequestHandler }) {
+export function createCheckoutRouter(deps: { orders: OrdersModule; writeLimiter: RequestHandler; webhookLimiter: RequestHandler; optionalAuthenticate: RequestHandler }) {
   const { checkout, payments, orders } = deps.orders;
   const router = Router();
   const never: RequestHandler = (_req, res, next) => (res.set("Cache-Control", "no-store"), next());
@@ -60,7 +60,7 @@ export function createCheckoutRouter(deps: { orders: OrdersModule; writeLimiter:
     res.status(201).json({ return: returned });
   }));
 
-  router.post("/payments/webhooks/:provider", never, asyncHandler(async (req, res) => {
+  router.post("/payments/webhooks/:provider", never, deps.webhookLimiter, asyncHandler(async (req, res) => {
     const headers = Object.fromEntries(Object.entries(req.headers).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]));
     const result = await payments.handleWebhook(String(req.params.provider), req.rawBody ?? "", headers);
     // 2xx tells the provider "received, stop retrying". An event about a payment we can't find yet is NOT that: have it sent again.

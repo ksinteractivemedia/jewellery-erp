@@ -40,6 +40,7 @@ export function testConfig(overrides: { auth?: Partial<AppConfig["auth"]>; rateL
       login: { windowMs: 60_000, max: 1000 },
       forgotPassword: { windowMs: 60_000, max: 1000 },
       storefrontWrite: { windowMs: 60_000, max: 1000 },
+      webhook: { windowMs: 60_000, max: 1000 },
       ...overrides.rateLimit,
     },
     checkout: { reservationMinutes: 20, storeBaseUrl: "http://store.test" },

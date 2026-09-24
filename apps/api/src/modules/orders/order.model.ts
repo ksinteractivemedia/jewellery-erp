@@ -117,6 +117,8 @@ const orderSchema = new Schema<OrderAttrs>(
 );
 orderSchema.index({ status: 1, holdExpiresAt: 1 });
 orderSchema.index({ "customer.userId": 1, placedAt: -1 }, { sparse: true });
+/** Sales reports scan paid/confirmed orders within a date range across every customer — the reporting module's own query pattern. */
+orderSchema.index({ status: 1, placedAt: -1 });
 
 /**
  * What an order says about WHAT was bought, for how much, to whom and where, is fixed the moment it is created: only its

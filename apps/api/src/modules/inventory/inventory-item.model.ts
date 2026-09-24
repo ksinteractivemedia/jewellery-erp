@@ -107,5 +107,11 @@ inventoryItemSchema.index({ locationId: 1, status: 1, metalId: 1 });
 inventoryItemSchema.index({ "reservation.expiresAt": 1 }, { sparse: true });
 inventoryItemSchema.index({ updatedAt: -1 });
 inventoryItemSchema.index({ metalId: 1, purity: 1 });
+// The inventory list's own query shape: `status` is by far its most common filter, combined with any of its
+// sortable columns (inventory-query.service.ts) — without these, a status-filtered sort by cost/itemCode/the
+// default updatedAt falls back to an in-memory sort over the whole filtered set as stock grows.
+inventoryItemSchema.index({ status: 1, updatedAt: -1 });
+inventoryItemSchema.index({ status: 1, cost: -1 });
+inventoryItemSchema.index({ status: 1, itemCode: 1 });
 
 export const InventoryItemModel: Model<InventoryItemAttrs> = model<InventoryItemAttrs>("InventoryItem", inventoryItemSchema);

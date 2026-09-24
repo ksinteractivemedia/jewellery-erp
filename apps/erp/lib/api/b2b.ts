@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { B2BAccount, B2BAttachment, B2BInvoice, B2BPayment, B2BPurchaseOrder, B2BQuotation, B2BSalesOrder, CreditPosition } from "@jewellery/types";
 import { API_URL, apiFetch, getAccessToken } from "../auth/api-client";
 import { useApiMutation } from "./queries";
@@ -71,7 +71,7 @@ export const b2bApi = {
 
 const ALL = [["b2b"]] as const;
 export const useB2BCustomers = () => useQuery({ queryKey: ["b2b", "customers"], queryFn: b2bApi.customers });
-export const useB2BPurchaseOrders = (status?: string) => useQuery({ queryKey: ["b2b", "pos", status], queryFn: () => b2bApi.purchaseOrders(status) });
+export const useB2BPurchaseOrders = (status?: string) => useQuery({ queryKey: ["b2b", "pos", status], queryFn: () => b2bApi.purchaseOrders(status), placeholderData: keepPreviousData });
 export const useB2BQuotations = () => useQuery({ queryKey: ["b2b", "quotes"], queryFn: () => b2bApi.quotations() });
 export const useB2BOrders = () => useQuery({ queryKey: ["b2b", "orders"], queryFn: () => b2bApi.orders() });
 export const useB2BInvoices = () => useQuery({ queryKey: ["b2b", "invoices"], queryFn: () => b2bApi.invoices() });

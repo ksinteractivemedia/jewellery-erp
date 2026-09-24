@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Hammer } from "lucide-react";
+import { EmptyState } from "@jewellery/ui";
 import type { JobWorkOrder } from "@jewellery/types";
 import { PERMISSIONS as P } from "@jewellery/types";
 import { useAuth } from "../../lib/auth/auth-context";
@@ -184,7 +186,7 @@ export function JobWorkView() {
       </div>
       {creating && <NewJobWorkOrderForm onDone={() => { setCreating(false); q.refetch(); }} />}
       <Load q={q}>
-        {items.length === 0 ? <p className="rounded-lg border border-dashed border-border p-10 text-center text-muted">Nothing here.</p> : (
+        {items.length === 0 ? <EmptyState icon={<Hammer className="h-8 w-8" />} title="No job work orders match" description="Try a different filter, or issue material to a job worker." /> : (
           <Table testId="jw-table"><thead><tr><Th>JW</Th><Th>Vendor</Th><Th>Due</Th><Th right>Issued</Th><Th>Status</Th></tr></thead><tbody>
             {items.map((p) => <tr key={p.id} className={`cursor-pointer hover:bg-surface-sunken ${sel === p.id ? "bg-surface-sunken" : ""}`} onClick={() => setSel(p.id)} data-testid="jw-row"><Td className="font-medium">{p.jobWorkOrderNo}</Td><Td>{p.vendorName}</Td><Td>{day(p.dueDate)}</Td><Td right>{grams(p.issuedGrossWeight)}</Td><Td><Status s={p.status} /></Td></tr>)}
           </tbody></Table>

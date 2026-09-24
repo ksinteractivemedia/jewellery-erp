@@ -51,7 +51,7 @@ export default function PurchaseOrderPage() {
               <ul className="flex flex-col gap-1.5" data-testid="attachment-list">
                 {po.attachments.map((a) => (
                   <li key={a.id} className="flex items-center justify-between gap-2 text-[0.8125rem]" data-testid="attachment-row">
-                    <button type="button" className="truncate text-left underline-offset-2 hover:underline" onClick={() => downloadAttachment(po.id, a.id, a.name).catch((e) => setError(e instanceof Error ? e.message : "Couldn’t download that."))} data-testid="attachment-download">{a.name}</button>
+                    <button type="button" className="min-w-0 truncate text-left underline-offset-2 hover:underline" onClick={() => downloadAttachment(po.id, a.id, a.name).catch((e) => setError(e instanceof Error ? e.message : "Couldn’t download that."))} data-testid="attachment-download">{a.name}</button>
                     <span className="flex shrink-0 items-center gap-2 text-[0.75rem] text-muted">{(a.size / 1024).toFixed(0)} KB · {a.uploadedBy === "CUSTOMER" ? "you" : "Suvarna"}
                       {a.uploadedBy === "CUSTOMER" && canAttach && <button type="button" className="text-muted hover:text-danger" aria-label={`Remove ${a.name}`} onClick={() => run(() => removeAttachment(po.id, a.id))} data-testid="attachment-remove"><X className="h-3.5 w-3.5" /></button>}
                     </span>
