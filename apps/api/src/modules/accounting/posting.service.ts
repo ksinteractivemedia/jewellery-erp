@@ -42,6 +42,8 @@ export const nextJournalNo = async () => formatDocumentNumber("JE", await nextSe
  * created but its accounting entry wasn't" can never happen.
  */
 export async function postJournal(session: ClientSession, input: PostJournalInput): Promise<AccountingEntryDocument> {
+  const bad = input.lines.find((l) => !Number.isInteger(l.amount) || l.amount < 0);
+  if (bad) throw new DomainValidationError(`Journal line amount must be a whole number of paise, got ${bad.amount}.`);
   const real = input.lines.filter((l) => l.amount > 0);
   if (real.length < 2) throw new DomainValidationError("A journal entry needs at least two non-zero lines.");
   const totalDebit = real.filter((l) => l.direction === "DEBIT").reduce((s, l) => s + l.amount, 0);

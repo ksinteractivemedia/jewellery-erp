@@ -206,7 +206,7 @@ export function createFulfilmentService(deps: { now?: () => Date }) {
       return inv!;
     });
     await audit(actor, AUDIT_ACTIONS.B2B_INVOICE_ISSUED, "Invoice", result.id, { invoiceNo, soNo: so.soNo, sequence, total: totals.total, dueDate, partial: invLines.length !== so.lines.length || invLines.some((l, i) => l.quantity !== so.lines[chosen[i]!.lineIndex]!.quantity) });
-    return invoiceView(result.toObject(), 0, [], ctx.today);
+    return invoiceView(result.toObject(), 0, 0, [], ctx.today);
   }
 
   /** Cancel what has not been invoiced; anything held goes back on the shelf, and invoices already issued stand. Audited with the reason. */

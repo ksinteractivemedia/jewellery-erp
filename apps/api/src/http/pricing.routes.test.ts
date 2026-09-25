@@ -247,3 +247,43 @@ describe("POST /api/pricing/preview — a complete breakdown from the one engine
     for (let i = 0; i < 5; i++) expect((await preview(necklace({ cost: 1_000_000 }))).body).toEqual(first);
   });
 });
+
+describe("metal rates — the one thing checkout/catalogue/reports price against, and until now nothing could set", () => {
+  it("lets pricing.manage enter a real rate, never trusting a client-supplied createdBy", async () => {
+    const admin = await tokenFor(R.ADMIN);
+    const res = await request(t.app)
+      .post("/api/pricing/rates")
+      .set(bearer(admin))
+      .send({ metalId: w.gold, purity: "22K", ratePerGram: 650_000, effectiveFrom: "2026-01-01", createdBy: "64b0c0ffee0000000000aaaa" });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.rate).toMatchObject({ metalId: w.gold, purity: "22K", ratePerGram: 650_000 });
+    expect(res.body.rate.createdBy).not.toBe("64b0c0ffee0000000000aaaa");
+  });
+
+  it("refuses a caller who only holds pricing.view", async () => {
+    const viewerRole = ALL_ROLE_NAMES.find((r) => DEFAULT_ROLE_MATRIX[r].includes(P.PRICING_VIEW) && !DEFAULT_ROLE_MATRIX[r].includes(P.PRICING_MANAGE))!;
+    expect(viewerRole).toBeTruthy();
+    const viewer = await tokenFor(viewerRole);
+    const res = await request(t.app).post("/api/pricing/rates").set(bearer(viewer)).send({ metalId: w.gold, purity: "22K", ratePerGram: 650_000, effectiveFrom: "2026-01-01" });
+    expect(res.status).toBe(403);
+  });
+
+  it("is append-only history, readable by anyone with pricing.view — a later entry becomes the current rate without erasing the earlier one", async () => {
+    const admin = await tokenFor(R.ADMIN);
+    await request(t.app).post("/api/pricing/rates").set(bearer(admin)).send({ metalId: w.gold, purity: "22K", ratePerGram: 640_000, effectiveFrom: "2026-01-01" });
+    await request(t.app).post("/api/pricing/rates").set(bearer(admin)).send({ metalId: w.gold, purity: "22K", ratePerGram: 650_000, effectiveFrom: "2026-01-02" });
+
+    const current = await request(t.app).get(`/api/pricing/rates/current?metalId=${w.gold}&purity=22K`).set(bearer(admin));
+    expect(current.body.rate.ratePerGram).toBe(650_000);
+
+    const history = await request(t.app).get(`/api/pricing/rates?metalId=${w.gold}&purity=22K`).set(bearer(admin));
+    expect(history.body.items).toHaveLength(2);
+    expect(history.body.items.map((r: { ratePerGram: number }) => r.ratePerGram).sort()).toEqual([640_000, 650_000]);
+  });
+
+  it("400s a malformed rate request rather than silently accepting garbage", async () => {
+    const admin = await tokenFor(R.ADMIN);
+    expect((await request(t.app).post("/api/pricing/rates").set(bearer(admin)).send({ metalId: w.gold, purity: "22K", ratePerGram: -1, effectiveFrom: "2026-01-01" })).status).toBe(400);
+    expect((await request(t.app).post("/api/pricing/rates").set(bearer(admin)).send({ metalId: "not-an-id", purity: "22K", ratePerGram: 1, effectiveFrom: "2026-01-01" })).status).toBe(400);
+  });
+});

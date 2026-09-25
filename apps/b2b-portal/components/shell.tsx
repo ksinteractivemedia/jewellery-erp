@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BookOpen, Building2, ClipboardList, CreditCard, FileText, LayoutDashboard, LogOut, Menu, MessageSquareQuote, Package, ReceiptText, ShoppingCart, WalletCards, X, Zap } from "lucide-react";
-import { cn } from "@jewellery/ui";
+import { cn, Drawer, DrawerContent, DrawerTitle } from "@jewellery/ui";
 import { useAuth } from "../lib/auth";
 import { cartPieces, cartStore, useCart } from "../lib/cart";
 import { money0 } from "../lib/money";
@@ -98,17 +98,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <Link href="/cart" className="btn btn-outline relative h-9 gap-1.5 px-3" aria-label={`Cart, ${cartPieces(cart)} pieces`} data-testid="cart-link"><ShoppingCart className="h-4 w-4" aria-hidden="true" /><span className="num text-[0.75rem]">{cartPieces(cart)}</span></Link>
         </header>
 
-        {open && (
-          <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
-            <button className="absolute inset-0 bg-foreground opacity-40" aria-label="Close menu" onClick={() => setOpen(false)} />
-            <div className="absolute inset-y-0 left-0 flex w-[280px] flex-col gap-4 bg-surface p-4 shadow-xl" data-testid="mobile-nav">
-              <div className="flex items-center justify-between"><span className="text-[1.0625rem] font-semibold tracking-[0.18em]">SUVARNA</span><button className="btn btn-ghost h-9 w-9 p-0" aria-label="Close menu" onClick={() => setOpen(false)}><X className="h-5 w-5" /></button></div>
-              {pos && <div className="rounded-md border border-border-subtle p-3 text-[0.75rem]"><p className="label">Available credit</p><p className={cn("num text-[1.125rem] font-semibold", pos.available < 0 && "text-danger")}>{money0(pos.available)}</p></div>}
-              {nav}
-              <button className="mt-auto inline-flex items-center gap-2 text-muted" onClick={() => signOut()}><LogOut className="h-4 w-4" aria-hidden="true" />Sign out</button>
+        <Drawer open={open} onOpenChange={setOpen}>
+          <DrawerContent side="left" hideClose className="w-[280px] max-w-[280px] gap-4 p-4 lg:hidden" data-testid="mobile-nav">
+            <div className="flex items-center justify-between">
+              <DrawerTitle className="text-[1.0625rem] font-semibold tracking-[0.18em]">SUVARNA</DrawerTitle>
+              <button className="btn btn-ghost h-9 w-9 p-0" aria-label="Close menu" onClick={() => setOpen(false)}><X className="h-5 w-5" /></button>
             </div>
-          </div>
-        )}
+            {pos && <div className="rounded-md border border-border-subtle p-3 text-[0.75rem]"><p className="label">Available credit</p><p className={cn("num text-[1.125rem] font-semibold", pos.available < 0 && "text-danger")}>{money0(pos.available)}</p></div>}
+            {nav}
+            <button className="mt-auto inline-flex items-center gap-2 text-muted" onClick={() => signOut()}><LogOut className="h-4 w-4" aria-hidden="true" />Sign out</button>
+          </DrawerContent>
+        </Drawer>
 
         <main id="main" className="mx-auto w-full max-w-[1280px] px-4 py-5 sm:px-6 sm:py-6">{children}</main>
       </div>

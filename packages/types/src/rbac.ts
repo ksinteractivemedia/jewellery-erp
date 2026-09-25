@@ -48,6 +48,7 @@ export const PERMISSIONS = {
 
   EXCHANGE_VIEW: "exchange.view",
   EXCHANGE_CREATE: "exchange.create",
+  EXCHANGE_APPROVE: "exchange.approve",
 
   REPAIR_VIEW: "repair.view",
   REPAIR_CREATE: "repair.create",

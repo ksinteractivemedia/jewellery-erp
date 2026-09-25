@@ -184,7 +184,7 @@ function Detail({ ex, onDone }: { ex: Exchange; onDone: () => void }) {
   const cancel = useExchangeAction(() => exchangeApi.cancel(ex.id, reason.trim() || undefined), "Cancelled", done);
   const write = can(P.EXCHANGE_CREATE);
   const canAssess = write && (ex.status === "DRAFT" || ex.status === "ASSESSED");
-  const canComplete = write && ex.status === "ASSESSED";
+  const canComplete = can(P.EXCHANGE_APPROVE) && ex.status === "ASSESSED";
   const canCancel = write && (ex.status === "DRAFT" || ex.status === "ASSESSED");
 
   return (

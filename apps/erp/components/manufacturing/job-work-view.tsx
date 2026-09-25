@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Hammer } from "lucide-react";
 import { EmptyState } from "@jewellery/ui";
@@ -171,10 +172,11 @@ function Detail({ order, onDone }: { order: JobWorkOrder; onDone: () => void }) 
 }
 
 export function JobWorkView() {
+  const deepLinkId = useSearchParams().get("id") ?? undefined;
   const [g, setG] = React.useState("");
   const [creating, setCreating] = React.useState(false);
   const q = useJobWorkOrders(g || undefined);
-  const [sel, setSel] = React.useState<string>();
+  const [sel, setSel] = React.useState<string | undefined>(deepLinkId);
   const items = q.data ?? [];
   const current = items.find((p) => p.id === sel);
   const { can } = useAuth();

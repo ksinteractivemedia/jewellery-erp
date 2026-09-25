@@ -31,7 +31,10 @@
 
   --color-primary: var(--palette-orange);
   --color-primary-hover: #e68600;
-  --color-primary-active: #cc7700;
+  /* #cc7700 read at 3.38:1 on white / 4.28:1 on --color-primary-subtle — below WCAG AA's 4.5:1 for normal text
+     (this token is used as text, e.g. badge.tsx, sidebar.tsx, status-badge.tsx, not just as the button active-state
+     background). Darkened to clear 4.5:1 against both. */
+  --color-primary-active: #9c5b00;
   --color-primary-foreground: var(--palette-white);
   --color-primary-subtle: #fff1db;
 
@@ -39,7 +42,10 @@
   --color-success-foreground: #ffffff;
   --color-success-subtle: #e4f3ea;
 
-  --color-warning: #a3760a;
+  /* #a3760a read at 3.61:1 on --color-warning-subtle (its usual background, e.g. alert.tsx/badge.tsx's warning
+     variant) — below WCAG AA's 4.5:1 for normal text. Darkened to clear 4.5:1 against both --color-warning-subtle
+     and white. */
+  --color-warning: #8a6408;
   --color-warning-foreground: #ffffff;
   --color-warning-subtle: #fbf0dc;
 

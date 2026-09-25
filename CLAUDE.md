@@ -18,6 +18,8 @@ A production-grade Jewellery ERP + Commerce platform for an Indian jewellery bus
 - [docs/design-system.md](docs/design-system.md) — tokens, typography, component rules
 - [docs/ux-audit.md](docs/ux-audit.md) — prioritized UX findings per app and what's already fixed vs. still open
 - [docs/security-audit.md](docs/security-audit.md) — verified security posture per area, the six specifically-checked attack scenarios, and what's fixed vs. still open
+- [docs/performance.md](docs/performance.md) — MongoDB/React/bundle performance findings and what's fixed vs. still open
+- [docs/production-readiness.md](docs/production-readiness.md) — full cross-module readiness review (P0–P3), what's fixed vs. documented, verification results
 - [docs/progress.md](docs/progress.md) — what phase we're in, what's done, what's next
 - [tests/test-plan.md](tests/test-plan.md) — testing strategy per phase
 

@@ -21,6 +21,7 @@ export function createExchangeRouter(deps: { authenticate: RequestHandler }) {
   router.use(deps.authenticate, (_req, res, next) => (res.set("Cache-Control", "no-store"), next()));
   const view = requirePermission(P.EXCHANGE_VIEW);
   const write = requirePermission(P.EXCHANGE_CREATE);
+  const approve = requirePermission(P.EXCHANGE_APPROVE);
   const actor = (req: Express.Request): Actor => ({ id: req.auth!.userId, name: req.auth!.name, ...(req.auth!.email ? { email: req.auth!.email } : {}) });
   const param = (req: Request) => String(req.params.id);
 
@@ -29,7 +30,7 @@ export function createExchangeRouter(deps: { authenticate: RequestHandler }) {
   router.get("/:id", view, asyncHandler(async (req, res) => void res.json({ exchange: await exchanges.getExchange(param(req)) })));
   router.post("/", write, validateBody(createExchangeSchema), asyncHandler(async (req, res) => void res.status(201).json({ exchange: await exchanges.createExchange(actor(req), req.body) })));
   router.post("/:id/assess", write, validateBody(assessExchangeSchema), asyncHandler(async (req, res) => void res.json({ exchange: await exchanges.assessExchange(param(req), actor(req), req.body) })));
-  router.post("/:id/complete", write, validateBody(completeExchangeSchema), asyncHandler(async (req, res) => void res.json({ exchange: await exchanges.completeExchange(param(req), actor(req), req.body) })));
+  router.post("/:id/complete", approve, validateBody(completeExchangeSchema), asyncHandler(async (req, res) => void res.json({ exchange: await exchanges.completeExchange(param(req), actor(req), req.body) })));
   router.post("/:id/cancel", write, validateBody(cancelExchangeSchema), asyncHandler(async (req, res) => void res.json({ exchange: await exchanges.cancelExchange(param(req), actor(req), req.body.reason) })));
 
   return router;

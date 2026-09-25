@@ -31,7 +31,7 @@ export function ReconciliationView() {
             {items.map((r) => (
               <tr key={`${r.kind}-${r.id}`} className={r.hasDiscrepancy ? "bg-danger-subtle" : undefined} data-testid="reconciliation-row">
                 <Td className="font-medium">
-                  <Link className="hover:underline" href={r.kind === "PRODUCTION" ? "/production/orders" : "/production/job-work"}>{r.orderNo}</Link>
+                  <Link className="hover:underline" href={r.kind === "PRODUCTION" ? `/production/orders?id=${r.id}` : `/production/job-work?id=${r.id}`}>{r.orderNo}</Link>
                 </Td>
                 <Td>{r.kind === "PRODUCTION" ? "Production" : "Job work"}</Td>
                 <Td>{r.party}</Td>

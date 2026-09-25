@@ -11,6 +11,7 @@ import type { MediaService } from "../media/media.service";
 import { findCurrentPriceList } from "../pricing/price-list.repository";
 import { loadStoreSettings } from "../orders/store-settings";
 import { loadPricingWorld, priceDesignWithEvidence, type PricedDesign, type PricingAudience, type PricingWorld } from "../storefront/storefront-pricing";
+import { CreditNoteModel } from "../accounting/credit-note.model";
 import { AllocationModel, InvoiceModel, SalesOrderModel } from "./b2b.models";
 import { creditPosition } from "./credit";
 
@@ -255,10 +256,17 @@ export async function paidByInvoice(invoiceIds: (Types.ObjectId | string)[], ses
   return new Map(rows.map((r) => [id(r._id), r.paid]));
 }
 
+/** Money credited against each invoice by an issued (non-cancelled) credit note — reduces what's owed exactly like a payment does. */
+export async function creditNotedByInvoice(invoiceIds: (Types.ObjectId | string)[], session?: ClientSession): Promise<Map<string, number>> {
+  if (!invoiceIds.length) return new Map();
+  const rows = await CreditNoteModel.aggregate<{ _id: unknown; credited: number }>([{ $match: { invoiceId: { $in: invoiceIds.map((x) => (typeof x === "string" ? new Types.ObjectId(x) : x)) }, status: "ISSUED" } }, { $group: { _id: "$invoiceId", credited: { $sum: "$total" } } }]).session(session ?? null);
+  return new Map(rows.map((r) => [id(r._id), r.credited]));
+}
+
 /** Where a customer stands against their limit right now — from invoices, allocations and approved orders, never from a stored figure. */
 export async function creditFor(customerId: string | Types.ObjectId, ctx: Pick<CustomerContext, "profile" | "today">, session?: ClientSession): Promise<CreditPosition> {
   const invoices = await InvoiceModel.find({ customerId, status: "ISSUED" }).session(session ?? null).lean();
-  const paid = await paidByInvoice(invoices.map((i) => i._id), session);
+  const [paid, credited] = await Promise.all([paidByInvoice(invoices.map((i) => i._id), session), creditNotedByInvoice(invoices.map((i) => i._id), session)]);
   // Promised, not yet invoiced: for every live order, what is left to invoice (an invoiced part is already in `invoices`).
   const live = await SalesOrderModel.find({ customerId, status: { $in: ["CONFIRMED", "PARTIALLY_ALLOCATED", "ALLOCATED", "PARTIALLY_FULFILLED"] } }).select("lines invoiced").session(session ?? null).lean();
   const committed = live.map((o) => o.lines.reduce((sum, l, i) => sum + (l.quantity - (o.invoiced.find((x) => x.lineIndex === i)?.quantity ?? 0)) * l.unitTotal, 0));
@@ -266,7 +274,7 @@ export async function creditFor(customerId: string | Types.ObjectId, ctx: Pick<C
     limit: ctx.profile.creditLimit,
     onHold: ctx.profile.creditHold,
     blockOnOverdue: ctx.profile.blockOnOverdue,
-    invoices: invoices.map((i) => ({ balance: i.totals.total - (paid.get(id(i._id)) ?? 0), dueDate: i.dueDate })).filter((i) => i.balance > 0),
+    invoices: invoices.map((i) => ({ balance: i.totals.total - (paid.get(id(i._id)) ?? 0) - (credited.get(id(i._id)) ?? 0), dueDate: i.dueDate })).filter((i) => i.balance > 0),
     committedOrders: committed,
     today: ctx.today,
   });
@@ -284,7 +292,7 @@ export async function creditPositionsFor(customers: { id: string | Types.ObjectI
     InvoiceModel.find({ customerId: { $in: ids }, status: "ISSUED" }).select("customerId totals dueDate").lean(),
     SalesOrderModel.find({ customerId: { $in: ids }, status: { $in: ["CONFIRMED", "PARTIALLY_ALLOCATED", "ALLOCATED", "PARTIALLY_FULFILLED"] } }).select("customerId lines invoiced").lean(),
   ]);
-  const paid = await paidByInvoice(invoices.map((i) => i._id));
+  const [paid, credited] = await Promise.all([paidByInvoice(invoices.map((i) => i._id)), creditNotedByInvoice(invoices.map((i) => i._id))]);
   const invoicesByCustomer = new Map<string, typeof invoices>();
   for (const inv of invoices) invoicesByCustomer.set(id(inv.customerId), [...(invoicesByCustomer.get(id(inv.customerId)) ?? []), inv]);
   const liveByCustomer = new Map<string, typeof live>();
@@ -300,7 +308,7 @@ export async function creditPositionsFor(customers: { id: string | Types.ObjectI
         limit: c.profile.creditLimit,
         onHold: c.profile.creditHold,
         blockOnOverdue: c.profile.blockOnOverdue,
-        invoices: custInvoices.map((i) => ({ balance: i.totals.total - (paid.get(id(i._id)) ?? 0), dueDate: i.dueDate })).filter((i) => i.balance > 0),
+        invoices: custInvoices.map((i) => ({ balance: i.totals.total - (paid.get(id(i._id)) ?? 0) - (credited.get(id(i._id)) ?? 0), dueDate: i.dueDate })).filter((i) => i.balance > 0),
         committedOrders: committed,
         today,
       })

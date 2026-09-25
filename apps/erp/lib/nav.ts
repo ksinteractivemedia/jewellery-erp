@@ -124,7 +124,7 @@ export const NAV: NavGroup[] = [
   {
     label: "Metals",
     items: [
-      { label: "Gold Rates", href: "/metals/gold-rates", icon: TrendingUp, permission: P.PRICING_VIEW },
+      { label: "Gold Rates", href: "/metals/gold-rates", icon: TrendingUp, permission: P.PRICING_VIEW, ownsHeader: true },
       { label: "Metal Inventory", href: "/metals/inventory", icon: Coins, permission: P.INVENTORY_VIEW },
     ],
   },

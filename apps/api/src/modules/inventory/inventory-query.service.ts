@@ -165,9 +165,10 @@ export function createInventoryQueryService(deps: { media: MediaService }) {
       // Rate for this purity if quoted, else the latest quote for any purity of the metal, scaled by fineness.
       const metal = await MetalModel.findById(lean.metalId).lean();
       const fin = (p: string) => metal?.purityOptions.find((o) => o.code === p)?.fineness ?? null;
+      // Tiebroken on _id too (insertion order) — two rows sharing an effectiveFrom must still resolve deterministically, same as findCurrentRate().
       const rate =
-        (await MetalRateModel.findOne({ metalId: lean.metalId, purity: lean.purity, effectiveFrom: { $lte: new Date() } }).sort({ effectiveFrom: -1 }).lean()) ??
-        (await MetalRateModel.findOne({ metalId: lean.metalId, effectiveFrom: { $lte: new Date() } }).sort({ effectiveFrom: -1 }).lean());
+        (await MetalRateModel.findOne({ metalId: lean.metalId, purity: lean.purity, effectiveFrom: { $lte: new Date() } }).sort({ effectiveFrom: -1, _id: -1 }).lean()) ??
+        (await MetalRateModel.findOne({ metalId: lean.metalId, effectiveFrom: { $lte: new Date() } }).sort({ effectiveFrom: -1, _id: -1 }).lean());
       const valuation = buildValuation(lean, rate as never, rate ? fin(rate.purity) : null);
 
       return {

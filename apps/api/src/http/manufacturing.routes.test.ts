@@ -271,6 +271,22 @@ describe("job work — issue to a vendor, and return: finished goods, unused mat
     expect(withNote.body.jobWorkOrder.reconciliation).toMatchObject({ hasDiscrepancy: true, discrepancyGrossWeight: 90 });
   });
 
+  it("refuses a return — partial or final — that accounts for more than was issued, even though a shortfall is fine mid-flow", async () => {
+    const batch = await rawGoldBatch(500);
+    const jw = await issuedJW([batch.id]);
+    // 300 finished + 250 wastage = 550 g, 50 g more than the 500 g issued — impossible, and not a "still expected" gap.
+    const overOnPartial = await staffPost(`/job-work-orders/${jw.id}/return`, { finishedPieces: [{ grossWeight: 300, quantity: 1 }], wastage: 250 });
+    expect(overOnPartial.status, JSON.stringify(overOnPartial.body)).toBe(400);
+    expect(overOnPartial.body.error.message).toMatch(/more than was issued/i);
+    // the order is untouched — a good partial return still works afterwards
+    const ok = await staffPost(`/job-work-orders/${jw.id}/return`, { finishedPieces: [{ grossWeight: 200, quantity: 1 }], wastage: 5 });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    // and the same over-issue guard applies on the closing return too, cumulatively
+    const overOnFinal = await staffPost(`/job-work-orders/${jw.id}/return`, { finishedPieces: [{ grossWeight: 400, quantity: 1 }], wastage: 0, final: true });
+    expect(overOnFinal.status, JSON.stringify(overOnFinal.body)).toBe(400);
+    expect(overOnFinal.body.error.message).toMatch(/more than was issued/i);
+  });
+
   it("won't return an item that wasn't issued, or return the same item twice", async () => {
     const batch = await rawGoldBatch(500);
     const other = await rawGoldBatch(100);

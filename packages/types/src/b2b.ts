@@ -244,6 +244,8 @@ export interface B2BInvoice {
   billingAddress: Address;
   /** Derived from verified, unreversed allocations — never stored. */
   paid: Paise;
+  /** Derived from issued (non-cancelled) credit notes against this invoice — never stored. */
+  credited: Paise;
   balance: Paise;
   status: InvoicePaymentStatus;
   daysOverdue: number;

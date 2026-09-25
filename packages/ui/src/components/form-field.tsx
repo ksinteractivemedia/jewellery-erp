@@ -16,6 +16,16 @@ export interface FormFieldProps {
 export function FormField({ label, htmlFor, required, error, hint, className, children }: FormFieldProps) {
   const hintId = htmlFor ? `${htmlFor}-hint` : undefined;
   const errorId = htmlFor ? `${htmlFor}-error` : undefined;
+  const describedBy = error ? errorId : hint ? hintId : undefined;
+  // The control itself carries the association a screen reader needs — the <p> having the id isn't enough on its own.
+  const control =
+    React.isValidElement<{ "aria-describedby"?: string; "aria-invalid"?: boolean; required?: boolean; "aria-required"?: boolean }>(children)
+      ? React.cloneElement(children, {
+          "aria-describedby": [describedBy, children.props["aria-describedby"]].filter(Boolean).join(" ") || undefined,
+          ...(error ? { "aria-invalid": true } : {}),
+          ...(required ? { required: true, "aria-required": true } : {}),
+        })
+      : children;
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       {label && (
@@ -23,7 +33,7 @@ export function FormField({ label, htmlFor, required, error, hint, className, ch
           {label}
         </Label>
       )}
-      {children}
+      {control}
       {hint && !error && (
         <p id={hintId} className="text-caption text-muted">
           {hint}

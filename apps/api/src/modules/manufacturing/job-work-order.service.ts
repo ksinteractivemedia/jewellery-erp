@@ -7,7 +7,7 @@ import { requireProductById } from "../catalog/product.repository";
 import { requireLocationById } from "../organization/location.repository";
 import { requireSupplierById } from "../suppliers/supplier.repository";
 import { InventoryItemModel, createInventoryItem, createTransaction, insertLedgerEntry, postInSession, withInventoryTransaction } from "../inventory";
-import { buildBom, reconcile } from "./manufacturing-core";
+import { DISCREPANCY_TOLERANCE_GRAMS, buildBom, reconcile } from "./manufacturing-core";
 import { jobWorkOrderView } from "./manufacturing-views";
 import { applyJobWork, audit, nextNo, oid, type Actor } from "./manufacturing-store";
 import { JobWorkOrderModel, type JobWorkOrderDocument } from "./manufacturing.models";
@@ -92,9 +92,15 @@ export async function returnJobWork(id: string, actor: Actor, input: ReturnJobWo
     finishedGrossWeight: (order.reconciliation?.finishedGrossWeight ?? 0) + finishedGrossWeightNow,
     wastageGrossWeight: (order.reconciliation?.wastageGrossWeight ?? 0) + input.wastage,
   };
-  // A discrepancy only means something once the order is being closed — a partial return legitimately hasn't accounted for
-  // everything yet (more is still expected), so it is never flagged as one; the raw figures are still recorded either way.
+  // A shortfall (issued > returned+finished+wastage) only means something once the order is being closed — a partial
+  // return legitimately hasn't accounted for everything yet (more is still expected). An excess (issued < accounted-for)
+  // is never legitimate at any point — more material can't come back than was issued — so that's checked on every return.
   const computed = reconcile({ issuedGrossWeight: order.issuedGrossWeight, ...cumulative, discrepancyNote: input.discrepancyNote });
+  if (computed.discrepancyGrossWeight < -DISCREPANCY_TOLERANCE_GRAMS) {
+    throw new DomainValidationError(
+      `Issued ${order.issuedGrossWeight} g but returned + finished + wastage now total ${(cumulative.returnedGrossWeight + cumulative.finishedGrossWeight + cumulative.wastageGrossWeight).toFixed(3)} g — ${Math.abs(computed.discrepancyGrossWeight)} g more than was issued. Check the weights entered for this return.`
+    );
+  }
   const reconciliation = input.final ? computed : { ...computed, hasDiscrepancy: false };
   if (input.final && computed.hasDiscrepancy && !input.discrepancyNote) {
     throw new DomainValidationError(

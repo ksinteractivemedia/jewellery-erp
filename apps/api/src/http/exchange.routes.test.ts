@@ -49,6 +49,22 @@ describe("who can reach what", () => {
     expect((await staff("/dashboard", "viewer")).status).toBe(200);
     expect((await staffPost("/", { customer: { name: "x" } }, "viewer")).status).toBe(403);
   });
+
+  it("exchange.create can assess but not complete — completing commits the valuation to inventory and settlement, so it's exchange.approve's job", async () => {
+    const created = await staffPost("/", { customer: { name: "Ravi Shah", phone: "9000000001" }, oldJewellery: oldJewellery({ metalId: w.gold }) }, "exec");
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const ex: Exchange = created.body.exchange;
+    expect((await staffPost(`/${ex.id}/assess`, { oldJewellery: oldJewellery({ metalId: w.gold }) }, "exec")).status).toBe(200);
+    expect(
+      (
+        await staffPost(
+          `/${ex.id}/complete`,
+          { locationId: w.loc.counter, newProduct: { productId: new Types.ObjectId().toString(), sku: "X", name: "X", unitPrice: 1, lineTotal: 1 }, settlement: {} },
+          "exec"
+        )
+      ).status
+    ).toBe(403);
+  });
 });
 
 describe("valuation is computed server-side, from the one shared metal-value formula", () => {

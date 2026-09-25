@@ -9,9 +9,14 @@ export async function createMetalRate(input: CreateMetalRateInput): Promise<Meta
   return toDTO<MetalRate>(doc)!;
 }
 
-/** The rate in effect as of a given moment (defaults to now) — the ledger/pricing engine's only read path. */
+/**
+ * The rate in effect as of a given moment (defaults to now) — the ledger/pricing engine's only read path.
+ * Two rows with the identical `effectiveFrom` (e.g. two corrections entered the same second) would otherwise
+ * resolve non-deterministically — `_id` (which embeds insertion order) breaks the tie in favour of whichever
+ * was entered last, the same "most recent correction wins" intent `effectiveFrom` itself expresses.
+ */
 export async function findCurrentRate(metalId: string, purity: string, asOf: Date = new Date()): Promise<MetalRate | null> {
-  const doc = await MetalRateModel.findOne({ metalId, purity, effectiveFrom: { $lte: asOf } }).sort({ effectiveFrom: -1 });
+  const doc = await MetalRateModel.findOne({ metalId, purity, effectiveFrom: { $lte: asOf } }).sort({ effectiveFrom: -1, _id: -1 });
   return toDTO<MetalRate>(doc);
 }
 

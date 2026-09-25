@@ -122,7 +122,8 @@ export async function allocationViews(filter: { invoiceId?: unknown; paymentId?:
 }
 const stripAlloc = ({ _paymentId, _invoiceId, ...a }: B2BAllocationView & { _paymentId: string; _invoiceId: string }): B2BAllocationView => a;
 
-export function invoiceView(d: WithId<InvoiceAttrs>, paid: number, allocations: B2BAllocationView[], today: string): B2BInvoice {
+export function invoiceView(d: WithId<InvoiceAttrs>, paid: number, credited: number, allocations: B2BAllocationView[], today: string): B2BInvoice {
+  const settled = paid + credited;
   return {
     id: docId(d),
     invoiceNo: d.invoiceNo,
@@ -138,9 +139,10 @@ export function invoiceView(d: WithId<InvoiceAttrs>, paid: number, allocations: 
     shippingAddress: addressView(d.shippingAddress),
     billingAddress: addressView(d.billingAddress ?? d.shippingAddress),
     paid,
-    balance: Math.max(d.totals.total - paid, 0),
-    status: invoiceStatus({ total: d.totals.total, paid, dueDate: d.dueDate, today, cancelled: d.status === "CANCELLED" }),
-    daysOverdue: d.totals.total - paid > 0 ? daysOverdue(d.dueDate, today) : 0,
+    credited,
+    balance: Math.max(d.totals.total - settled, 0),
+    status: invoiceStatus({ total: d.totals.total, paid: settled, dueDate: d.dueDate, today, cancelled: d.status === "CANCELLED" }),
+    daysOverdue: d.totals.total - settled > 0 ? daysOverdue(d.dueDate, today) : 0,
     allocations,
   };
 }

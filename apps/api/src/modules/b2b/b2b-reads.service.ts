@@ -12,7 +12,7 @@ import { CustomerModel } from "../customers/customer.model";
 import { businessDay } from "../dashboard/range";
 import type { MediaService } from "../media/media.service";
 import { AllocationModel, B2BPaymentModel, InvoiceModel, PurchaseOrderModel, QuotationModel, SalesOrderModel } from "./b2b.models";
-import { buyerStateFor, catalogueItem, creditFor, customerContext, paidByInvoice, priceFor, stockCounts, stockKey, type SkuHit } from "./b2b-core";
+import { buyerStateFor, catalogueItem, creditFor, creditNotedByInvoice, customerContext, paidByInvoice, priceFor, stockCounts, stockKey, type SkuHit } from "./b2b-core";
 import { audit, type Actor } from "./b2b-store";
 import { allocationViews, invoiceView, paymentView, poView, quotationView, salesOrderView, stripAlloc } from "./b2b-views";
 import { ageInvoices } from "./credit";
@@ -85,10 +85,10 @@ export function createB2BReads(deps: { media: MediaService; now?: () => Date; /*
 
   const invoicesOf = async (filter: Record<string, unknown>, opts: { withAllocations?: boolean } = {}): Promise<B2BInvoice[]> => {
     const docs = await InvoiceModel.find(filter).sort({ issueDate: -1, invoiceNo: -1 }).limit(300).lean();
-    const paid = await paidByInvoice(docs.map((d) => d._id));
+    const [paid, credited] = await Promise.all([paidByInvoice(docs.map((d) => d._id)), creditNotedByInvoice(docs.map((d) => d._id))]);
     const allocs = opts.withAllocations ? await allocationViews({ invoiceId: { $in: docs.map((d) => d._id) } }) : [];
     const today = businessDay(clock());
-    return docs.map((d) => invoiceView(d as never, paid.get(id(d._id)) ?? 0, allocs.filter((a) => a._invoiceId === id(d._id)).map(stripAlloc), today));
+    return docs.map((d) => invoiceView(d as never, paid.get(id(d._id)) ?? 0, credited.get(id(d._id)) ?? 0, allocs.filter((a) => a._invoiceId === id(d._id)).map(stripAlloc), today));
   };
   const invoices = (s: Scope & { status?: string } = {}) => invoicesOf({ ...scoped(s) }).then((v) => (s.status ? v.filter((i) => s.status!.split(",").includes(i.status)) : v));
   const invoice = async (invoiceId: string, s: Scope = {}) => {

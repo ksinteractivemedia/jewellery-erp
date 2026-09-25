@@ -1277,6 +1277,29 @@ describe("accounting: every completed financial transaction posts a balanced jou
     expect(totalAcrossBoth).toBe(0); // net effect of issue + cancel is nothing
   });
 
+  it("a credit note reduces what B2B shows as owed too — the invoice's own balance, the customer's outstanding/ageing, and their credit position, not just the GL", async () => {
+    const { invoice } = await invoiced([["BAND-1", 2]]);
+    const half = Math.floor(invoice.totals.taxable / 2);
+    const gstHalf = Math.floor(invoice.totals.gst / 2);
+    const credited = half + gstHalf;
+
+    const created = await acctPost("/credit-notes", { customerId: ctx.customerId, invoiceId: invoice.id, reason: "SALES_RETURN", taxableValue: half, gst: gstHalf });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+
+    const inv = (await buyer(`/invoices/${invoice.id}`)).body.invoice as B2BInvoice;
+    expect(inv).toMatchObject({ paid: 0, credited, balance: invoice.totals.total - credited, status: "PARTIALLY_PAID" });
+
+    const out = (await buyer("/outstanding")).body as B2BOutstanding;
+    expect(out.invoices.find((i) => i.id === invoice.id)).toMatchObject({ balance: invoice.totals.total - credited });
+    expect(out.position.outstanding).toBe(invoice.totals.total - credited);
+
+    // cancelling the credit note hands the full balance back
+    const cn = created.body.creditNote;
+    expect((await acctPost(`/credit-notes/${cn.id}/cancel`, { reason: "test" })).status).toBe(200);
+    const invAfter = (await buyer(`/invoices/${invoice.id}`)).body.invoice as B2BInvoice;
+    expect(invAfter).toMatchObject({ credited: 0, balance: invoice.totals.total });
+  });
+
   it("only accounting.manage can write; accounting.view is enough to read", async () => {
     expect((await acct("/receivables/dashboard", "viewer")).status).toBe(200);
     expect((await acctPost("/accounts", { code: "9999", name: "Test", type: "ASSET" }, "viewer")).status).toBe(403);

@@ -45,28 +45,44 @@ export interface AppConfig {
 
 const bool = z.enum(["true", "false"]).transform((v) => v === "true");
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().default(4000),
-  ALLOWED_ORIGINS: z.string().default("http://localhost:3000"),
-  TRUST_PROXY: bool.default("false"),
-  JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
-  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
-  REFRESH_IDLE_TTL_DAYS: z.coerce.number().positive().default(7),
-  SESSION_ABSOLUTE_TTL_DAYS: z.coerce.number().positive().default(30),
-  BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
-  MAX_FAILED_LOGINS: z.coerce.number().int().positive().default(5),
-  LOCKOUT_MINUTES: z.coerce.number().positive().default(15),
-  PASSWORD_RESET_TTL_MINUTES: z.coerce.number().positive().default(30),
-  APP_BASE_URL: z.string().url().default("http://localhost:3000"),
-  COOKIE_SECURE: bool.optional(),
-  COOKIE_DOMAIN: z.string().optional(),
-  RATE_LIMIT_ENABLED: bool.default("true"),
-  MEDIA_DIR: z.string().default("./.data/media"),
-  API_PUBLIC_URL: z.string().url().optional(),
-  CHECKOUT_RESERVATION_MINUTES: z.coerce.number().int().min(5).max(120).default(20),
-  STORE_BASE_URL: z.string().url().default("http://localhost:3001"),
-});
+const isLoopback = (url: string) => ["localhost", "127.0.0.1", "::1"].includes(new URL(url).hostname);
+
+const envSchema = z
+  .object({
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    PORT: z.coerce.number().int().default(4000),
+    ALLOWED_ORIGINS: z.string().default("http://localhost:3000"),
+    TRUST_PROXY: bool.default("false"),
+    JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
+    ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+    REFRESH_IDLE_TTL_DAYS: z.coerce.number().positive().default(7),
+    SESSION_ABSOLUTE_TTL_DAYS: z.coerce.number().positive().default(30),
+    BCRYPT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
+    MAX_FAILED_LOGINS: z.coerce.number().int().positive().default(5),
+    LOCKOUT_MINUTES: z.coerce.number().positive().default(15),
+    PASSWORD_RESET_TTL_MINUTES: z.coerce.number().positive().default(30),
+    APP_BASE_URL: z.string().url().default("http://localhost:3000"),
+    COOKIE_SECURE: bool.optional(),
+    COOKIE_DOMAIN: z.string().optional(),
+    RATE_LIMIT_ENABLED: bool.default("true"),
+    MEDIA_DIR: z.string().default("./.data/media"),
+    API_PUBLIC_URL: z.string().url().optional(),
+    CHECKOUT_RESERVATION_MINUTES: z.coerce.number().int().min(5).max(120).default(20),
+    STORE_BASE_URL: z.string().url().default("http://localhost:3001"),
+  })
+  // In production these URLs are sent to real people (password-reset links, payment-gateway return
+  // URLs, media links) — a silently-defaulted localhost would ship broken links, not a crash, so it
+  // has to be caught here at boot rather than discovered from a support ticket.
+  .superRefine((e, ctx) => {
+    if (e.NODE_ENV !== "production") return;
+    for (const [field, url] of [
+      ["APP_BASE_URL", e.APP_BASE_URL],
+      ["STORE_BASE_URL", e.STORE_BASE_URL],
+      ["API_PUBLIC_URL", e.API_PUBLIC_URL ?? `http://localhost:${e.PORT}`],
+    ] as const) {
+      if (isLoopback(url)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: `${field} must be set to a real, public URL in production (got ${url}).` });
+    }
+  });
 
 /** Parses and validates the environment once at boot — a bad/missing secret fails fast instead of at first login. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
